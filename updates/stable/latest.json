@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "channel": "stable",
-  "policyRevision": 3,
-  "manifestPath": "updates/stable/manifests/3-1c95380859bc442b9a71ad8e955c8b0a5be8eaa38dafc8bc97489eb68c124e59.json",
-  "manifestSha256": "1c95380859bc442b9a71ad8e955c8b0a5be8eaa38dafc8bc97489eb68c124e59",
-  "expiresAt": "2027-10-29T04:48:15.0000000+00:00"
+  "policyRevision": 4,
+  "manifestPath": "updates/stable/manifests/4-1abe88e16fe378f2c15e5561f46f20823809210aaac72fc796596aa2b6c50c97.json",
+  "manifestSha256": "1abe88e16fe378f2c15e5561f46f20823809210aaac72fc796596aa2b6c50c97",
+  "expiresAt": "2027-10-29T13:50:56.0000000+00:00"
 }

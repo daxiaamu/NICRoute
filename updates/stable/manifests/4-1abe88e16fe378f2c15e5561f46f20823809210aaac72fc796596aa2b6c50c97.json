@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "appId": "NICRoute.Windows",
+  "platform": "win-x64",
+  "channel": "stable",
+  "policyRevision": 4,
+  "versionCode": 4,
+  "versionName": "0.2.2",
+  "maxForcedVersionCode": 0,
+  "publishedAt": "2026-10-29T13:50:56.0000000+00:00",
+  "changelog": "新增每张网卡的上行、下行流量监控。\r\n\r\n- 网卡卡片显示实时上行和下行速率，每秒刷新。\r\n- 新增“流量监控”页，统一查看所有网卡的速率和本次软件运行期间的累计收发量。\r\n- 不启动分流也能监控，无需管理员权限；仅后台读取 Windows 接口计数。\r\n- 使用实际采样间隔和 64 位计数，处理首次采样、读取失败、计数器重置、断线重连及系统休眠恢复。\r\n- 刷新速率时保留网卡列表和卡片，避免重新创建界面。\r\n\r\n统计整张网卡，包括其他应用与局域网流量。虚拟网卡和物理网卡可能记录同一份流量，各网卡不直接求和。累计从首次有效采样开始，退出软件后清零；异常期间不估算缺失流量。本次不增加限速功能。\r\n\r\n已有用户可在“软件更新”中检查更新，通过 MUDL 下载并重启安装。保留网卡规则，本次为可选更新。\r\n\n\n对应应用提交：25db78115545034bbff2d9b1203700c8bb92e15c。",
+  "sha256": "52f56ae2257584d23e9b1092b54973677d4c082e8bab893b681a6608612036c7",
+  "size": 104839442,
+  "urls": [
+    "https://github.com/daxiaamu/NICRoute/releases/download/v0.2.2/NICRoute-win-x64.zip",
+    "https://gh.monlor.com/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.2/NICRoute-win-x64.zip",
+    "https://gh-proxy.com/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.2/NICRoute-win-x64.zip",
+    "https://ghfast.top/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.2/NICRoute-win-x64.zip"
+  ],
+  "releaseUrl": "https://github.com/daxiaamu/NICRoute/releases/tag/v0.2.2"
+}
