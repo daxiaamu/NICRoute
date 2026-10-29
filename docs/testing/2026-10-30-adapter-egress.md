@@ -69,7 +69,7 @@
 | MUDL 真实下载及 SHA256 | 193 | 0 | 通过 |
 | 发布包 UI、最小窗口、WPF 引擎生命周期 | 14 个控件检查 | 0 | 通过 |
 
-运行包：`NICRoute-win-x64.zip`，104,872,740 字节，SHA256 `ecc2a31f0960d7c23e4e2e7f261f2fe22b676f6e834b4081d64bcd65e1928caf`。
+运行包：`NICRoute-win-x64.zip`，104,872,875 字节，SHA256 `b4991e6fc1c5faa7a863609c91356134baba9495110d8026074c30af3d2644c8`。
 
 ## 未覆盖
 
