@@ -63,6 +63,15 @@ Assert(config["dns"]!["rules"]![0]!["process_path_regex"] is not null, "DNS uses
 Assert(config["inbounds"]![0]!["strict_route"]!.GetValue<bool>(), "strict routing enabled");
 Assert(config["inbounds"]![0]!["address"]!.AsArray().Count == 2, "IPv4 and IPv6 TUN capture");
 Assert(config["outbounds"]!.AsArray().Any(o => o!["bind_interface"]?.GetValue<string>() == a.Name), "real NIC binding emitted");
+var dualStackAdapter = new AdapterInfo("dual", "Dual", "ethernet", 3, true, ["192.0.2.9", "2001:db8::9"]);
+var sourceBoundConfig = ConfigBuilder.Build(new AppSettings { GlobalAdapterId = dualStackAdapter.Id },
+    [dualStackAdapter], 29993, "test-secret", 29994);
+var sourceBoundOutbound = sourceBoundConfig["outbounds"]!.AsArray().Single(
+    o => o!["tag"]?.GetValue<string>() == dualStackAdapter.Tag)!;
+Assert(sourceBoundOutbound["inet4_bind_address"]?.GetValue<string>() == "192.0.2.9",
+    "NIC outbound binds its first IPv4 source address");
+Assert(sourceBoundOutbound["inet6_bind_address"]?.GetValue<string>() == "2001:db8::9",
+    "NIC outbound binds its first IPv6 source address");
 Assert(config["outbounds"]!.AsArray().Where(o => o!["type"]!.GetValue<string>() == "selector").All(o => o!["interrupt_exist_connections"]!.GetValue<bool>()), "switch closes existing connections");
 
 var temp = Path.Combine(Path.GetTempPath(), "NICRoute-tests-" + Guid.NewGuid().ToString("N"));

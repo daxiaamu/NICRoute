@@ -78,7 +78,14 @@ public sealed class EngineController : IAsyncDisposable
                     r.Application.ExecutablePath.Equals(enginePath, StringComparison.OrdinalIgnoreCase)))
                     throw new InvalidDataException("不能为分流引擎自身添加应用规则。");
                 var targets = ApplicationNetworkGuard.Targets(settings);
-                var guard = targets.Length > 0 ? new ApplicationNetworkGuard(targets) : null;
+                var egressBindings = adapters
+                    .SelectMany(adapter => adapter.Addresses.Select(address =>
+                        new ApplicationNetworkGuard.EgressBinding(address, adapter.Name)))
+                    .DistinctBy(binding => (binding.LocalAddress.ToLowerInvariant(), binding.InterfaceName))
+                    .ToArray();
+                var guard = targets.Length > 0 || egressBindings.Length > 0
+                    ? new ApplicationNetworkGuard(targets, preserveLoopback: true, enginePath, egressBindings)
+                    : null;
                 networkGuard?.Dispose(); networkGuard = guard;
             }
             ownedProcess = new();

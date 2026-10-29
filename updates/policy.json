@@ -1,8 +1,8 @@
 {
   "stable": {
-    "policyRevision": 5,
+    "policyRevision": 6,
     "maxForcedVersionCode": 0,
-    "reason": "增加应用出口约束、应用流量监控及紧凑布局；保持可选更新。"
+    "reason": "修复选定网卡仍被 Windows 默认路由带到其他网卡的问题；保持可选更新。"
   },
   "beta": {
     "policyRevision": 2,

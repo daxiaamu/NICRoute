@@ -1,5 +1,8 @@
+using System.Buffers.Binary;
 using System.ComponentModel;
+using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -12,20 +15,31 @@ public sealed class ApplicationNetworkGuard : IDisposable
 {
     private static readonly Guid V4 = new("c38d57d1-05a7-4c33-904f-7fbceee60e82"), V6 = new("4a72393b-319f-44bc-84c3-ba54dcb3b6b4");
     private static readonly Guid AppId = new("d78e1e87-8644-4ea5-9437-d809ecefc971"), PackageId = new("71bc78fa-f17c-4997-a602-6abb261f351c");
+    private static readonly Guid LocalAddress = new("d9ee00de-c1ef-4617-bfe3-ffd8f5a08957");
     private static readonly Guid NextInterface = new("93ae8f5b-7f6f-4719-98c8-14e97429ef04"), Flags = new("632ce23b-5167-435c-86d7-e903684aa80c");
     private readonly Guid sublayer = Guid.NewGuid();
     private readonly Target[] targets;
+    private readonly string? egressIdentity;
+    private readonly EgressBinding[] egressBindings = [];
     private readonly List<ulong> filters = [];
     private WfpHandle? handle;
     private readonly bool preserveLoopback;
     public int FilterCount => filters.Count;
     public sealed record Target(string Name, string Identity, bool IsPackage);
+    public sealed record EgressBinding(string LocalAddress, string InterfaceName);
     public static Target[] Targets(AppSettings settings) => settings.Rules.Where(r => r.Enabled).Select(r =>
         new Target(r.Application.Name, r.Application.Kind == ApplicationKind.WindowsPackage ? r.Application.PackageFamilyName : r.Application.ExecutablePath,
             r.Application.Kind == ApplicationKind.WindowsPackage)).DistinctBy(t => (t.IsPackage, t.Identity.ToLowerInvariant())).ToArray();
     public ApplicationNetworkGuard(IEnumerable<Target> targets, bool preserveLoopback = true)
+        : this(targets, preserveLoopback, null, []) { }
+    public ApplicationNetworkGuard(string egressIdentity, IEnumerable<EgressBinding> egressBindings)
+        : this([], preserveLoopback: false, egressIdentity, egressBindings) { }
+    public ApplicationNetworkGuard(IEnumerable<Target> targets, bool preserveLoopback,
+        string? egressIdentity, IEnumerable<EgressBinding>? egressBindings)
     {
         this.targets = targets.ToArray(); this.preserveLoopback = preserveLoopback;
+        this.egressIdentity = egressIdentity;
+        this.egressBindings = egressBindings?.ToArray() ?? [];
         ValidateLayout();
         var session = new Session { Key = Guid.NewGuid(), Display = new() { Name = "NICRoute application interface guard" }, Flags = 1 };
         Check(FwpmEngineOpen0(null, 10, IntPtr.Zero, ref session, out var opened), "打开 Windows 过滤引擎");
@@ -102,10 +116,69 @@ public sealed class ApplicationNetworkGuard : IDisposable
                     if (identity != IntPtr.Zero) { if (target.IsPackage) FreeSid(identity); else FwpmFreeMemory0(ref identity); }
                 }
             }
+            if (egressIdentity is not null) AddEgressFilters(added);
             Check(FwpmTransactionCommit0(handle), "提交应用网卡约束");
             filters.Clear(); filters.AddRange(added);
         }
         catch { _ = FwpmTransactionAbort0(handle); throw; }
+    }
+    private void AddEgressFilters(List<ulong> added)
+    {
+        foreach (var binding in egressBindings)
+        {
+            if (!IPAddress.TryParse(binding.LocalAddress, out var address) ||
+                address.AddressFamily is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6))
+                throw new InvalidDataException("引擎出口地址无效：" + binding.LocalAddress);
+            var interfaceLuid = InterfaceLuid(binding.InterfaceName);
+            IntPtr identity = IntPtr.Zero, addressMemory = IntPtr.Zero, interfaceMemory = IntPtr.Zero, conditionMemory = IntPtr.Zero;
+            try
+            {
+                Check(FwpmGetAppIdFromFileName0(egressIdentity!, out identity), "读取引擎应用身份");
+                interfaceMemory = Marshal.AllocHGlobal(sizeof(long));
+                Marshal.WriteInt64(interfaceMemory, unchecked((long)interfaceLuid));
+                Condition addressCondition;
+                if (address.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    addressCondition = new() { Key = LocalAddress,
+                        Value = new() { Type = 3, Number = BinaryPrimitives.ReadUInt32BigEndian(address.GetAddressBytes()) } };
+                }
+                else
+                {
+                    addressMemory = Marshal.AllocHGlobal(16);
+                    Marshal.Copy(address.GetAddressBytes(), 0, addressMemory, 16);
+                    addressCondition = new() { Key = LocalAddress, Value = new() { Type = 11, Pointer = addressMemory } };
+                }
+                Condition[] conditions =
+                [
+                    new() { Key = AppId, Value = new() { Type = 12, Pointer = identity } },
+                    addressCondition,
+                    new() { Key = NextInterface, Match = 10, Value = new() { Type = 4, Pointer = interfaceMemory } }
+                ];
+                conditionMemory = Marshal.AllocHGlobal(conditions.Length * Marshal.SizeOf<Condition>());
+                for (var i = 0; i < conditions.Length; i++)
+                    Marshal.StructureToPtr(conditions[i], conditionMemory + i * Marshal.SizeOf<Condition>(), false);
+                var filter = new Filter
+                {
+                    Key = Guid.NewGuid(),
+                    Display = new() { Name = $"NICRoute engine egress · {binding.InterfaceName} · {binding.LocalAddress}" },
+                    Layer = address.AddressFamily == AddressFamily.InterNetwork ? V4 : V6,
+                    SubLayer = sublayer,
+                    Weight = new() { Type = 1, Number = 15 },
+                    Count = (uint)conditions.Length,
+                    Conditions = conditionMemory,
+                    Action = new() { Type = 0x1001 }
+                };
+                Check(FwpmFilterAdd0(handle!, ref filter, IntPtr.Zero, out var id), "安装引擎出口约束：" + binding.InterfaceName);
+                added.Add(id);
+            }
+            finally
+            {
+                if (conditionMemory != IntPtr.Zero) Marshal.FreeHGlobal(conditionMemory);
+                if (interfaceMemory != IntPtr.Zero) Marshal.FreeHGlobal(interfaceMemory);
+                if (addressMemory != IntPtr.Zero) Marshal.FreeHGlobal(addressMemory);
+                if (identity != IntPtr.Zero) FwpmFreeMemory0(ref identity);
+            }
+        }
     }
     private static void Check(uint result, string action)
     {

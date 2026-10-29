@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -19,8 +21,17 @@ public static class ConfigBuilder
                 ["server"] = "127.0.0.1", ["server_port"] = rejectPort, ["version"] = "5" }
         };
         foreach (var adapter in adapters)
-            outbounds.Add(new JsonObject { ["type"] = "direct", ["tag"] = adapter.Tag,
-                ["bind_interface"] = adapter.Name, ["connect_timeout"] = "8s" });
+        {
+            var outbound = new JsonObject { ["type"] = "direct", ["tag"] = adapter.Tag,
+                ["bind_interface"] = adapter.Name, ["connect_timeout"] = "8s" };
+            var ipv4 = adapter.Addresses.FirstOrDefault(value =>
+                IPAddress.TryParse(value, out var address) && address.AddressFamily == AddressFamily.InterNetwork);
+            var ipv6 = adapter.Addresses.FirstOrDefault(value =>
+                IPAddress.TryParse(value, out var address) && address.AddressFamily == AddressFamily.InterNetworkV6);
+            if (ipv4 is not null) outbound["inet4_bind_address"] = ipv4;
+            if (ipv6 is not null) outbound["inet6_bind_address"] = ipv6;
+            outbounds.Add(outbound);
+        }
         var choices = new[] { RuleResolver.SystemTag, RuleResolver.BlockTag }.Concat(adapters.Select(a => a.Tag)).ToArray();
         var selections = RuleResolver.Selections(settings, adapters);
         foreach (var (tag, selected) in selections)
