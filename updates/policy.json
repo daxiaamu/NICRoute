@@ -1,8 +1,8 @@
 {
   "stable": {
-    "policyRevision": 4,
+    "policyRevision": 5,
     "maxForcedVersionCode": 0,
-    "reason": "新增每网卡上下行流量监控；保持可选更新，不强制现有版本。"
+    "reason": "增加应用出口约束、应用流量监控及紧凑布局；保持可选更新。"
   },
   "beta": {
     "policyRevision": 2,

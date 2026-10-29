@@ -58,6 +58,7 @@ public partial class App : System.Windows.Application
         var dataIndex = Array.IndexOf(e.Args, "--data-dir");
         var dataDirectory = dataIndex >= 0 && dataIndex + 1 < e.Args.Length ? Path.GetFullPath(e.Args[dataIndex + 1]) : null;
         var window = new MainWindow(previewIndex >= 0, dataDirectory);
+        if(previewIndex>=0&&e.Args.Contains("--small-window")) { window.Width=1030; window.Height=760; }
         MainWindow = window;
         window.Show();
         if(previewIndex>=0&&e.Args.Contains("--updates-tab")) window.UpdatesTab.IsSelected=true;
@@ -75,6 +76,7 @@ public partial class App : System.Windows.Application
                 File.WriteAllText(e.Args[previewIndex + 1] + ".checks.txt", window.VerifyRuleManagementPreview());
             if(e.Args.Contains("--verify-traffic"))
                 File.AppendAllText(e.Args[previewIndex + 1] + ".checks.txt", Environment.NewLine + window.VerifyTrafficPreview());
+            if(e.Args.Contains("--app-traffic-tab")) window.PreviewApplicationTraffic();
             Window rendered = window;
             if(e.Args.Contains("--update-dialog"))
             {
@@ -92,6 +94,8 @@ public partial class App : System.Windows.Application
             }
             await Task.Delay(e.Args.Contains("--editor") ? 4000 : 800);
             rendered.UpdateLayout();
+            if(e.Args.Contains("--verify-applications"))
+                File.AppendAllText(e.Args[previewIndex + 1] + ".checks.txt", Environment.NewLine + window.VerifyApplicationTrafficPreview());
             // Window.Render omits the non-client chrome. Use client dimensions to avoid
             // transparent bands from the title bar/borders in the exported preview.
             var client = (FrameworkElement)rendered.Content;

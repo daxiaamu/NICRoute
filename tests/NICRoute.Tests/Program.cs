@@ -113,7 +113,10 @@ finally
 }
 passed+=await UpdateTests.RunAsync();
 passed+=TrafficTests.Run();
+passed+=ApplicationTrafficTests.Run();
+if(args.Contains("--firewall")) passed+=await FirewallTests.RunAsync();
 if(args.Contains("--traffic")) passed+=await TrafficTests.VerifyNativeAsync();
+if(args.Contains("--applications")) passed+=await ApplicationFeedIntegration.RunAsync(Path.GetFullPath(args[Array.IndexOf(args,"--engine")+1]));
 var updaterIndex=Array.IndexOf(args,"--updater-e2e");
 if(updaterIndex>=0) passed+=await UpdateTests.RunUpdaterAsync(args[updaterIndex+1],args[Array.IndexOf(args,"--fixtures")+1]);
 var mudlIndex=Array.IndexOf(args,"--mudl");

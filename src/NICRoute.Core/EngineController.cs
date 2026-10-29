@@ -15,9 +15,19 @@ public sealed class EngineController : IAsyncDisposable
     private readonly string enginePath;
     private readonly string workDirectory;
     private Process? process;
+    private int enginePid;
+    public void RefreshObservedInterfaces(IReadOnlyList<AdapterInfo> adapters)
+    {
+        var started = Stopwatch.GetTimestamp();
+        ApplicationTraffic.UpdateObservedTcp(ObservedTcpInterfaces.Capture(Volatile.Read(ref enginePid), adapters), started);
+    }
     private EngineProcess? ownedProcess;
     private RejectEndpoint? reject;
     private HttpClient? api;
+    private ApplicationConnectionFeed? applicationFeed;
+    private ApplicationNetworkGuard? networkGuard;
+    public bool HasNetworkGuard => networkGuard is not null;
+    public ApplicationTrafficTracker ApplicationTraffic { get; } = new();
     private bool stopping;
     private TaskCompletionSource? ready;
     private Dictionary<string, string> selections = [];
@@ -56,17 +66,30 @@ public sealed class EngineController : IAsyncDisposable
             reject = new();
             reject.Start();
             var port = GetFreePort();
+            var monitorPort = GetFreePort();
+            while (monitorPort == port) monitorPort = GetFreePort();
             var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
             var configPath = Path.Combine(workDirectory, "engine.json");
-            await File.WriteAllTextAsync(configPath, ConfigBuilder.Serialize(ConfigBuilder.Build(settings, adapters, port, secret, reject.Port, useTun, testPort)));
+            await File.WriteAllTextAsync(configPath, ConfigBuilder.Serialize(ConfigBuilder.Build(settings, adapters, port, secret, reject.Port, useTun, testPort, monitorPort)));
             await CheckAsync(configPath);
+            if (useTun)
+            {
+                if (settings.Rules.Any(r => r.Enabled && r.Application.Kind == ApplicationKind.Desktop &&
+                    r.Application.ExecutablePath.Equals(enginePath, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidDataException("不能为分流引擎自身添加应用规则。");
+                var targets = ApplicationNetworkGuard.Targets(settings);
+                var guard = targets.Length > 0 ? new ApplicationNetworkGuard(targets) : null;
+                networkGuard?.Dispose(); networkGuard = guard;
+            }
             ownedProcess = new();
             ownedProcess.Start(enginePath, configPath, workDirectory, OnOutput);
             process = ownedProcess.Process;
+            Volatile.Write(ref enginePid, process.Id);
             process.EnableRaisingEvents = true;
             process.Exited += (_, _) =>
             {
                 IsReady = false;
+                Volatile.Write(ref enginePid, 0); ApplicationTraffic.Stop();
                 ready?.TrySetException(new InvalidOperationException("引擎退出。请检查运行日志。"));
                 if (!stopping) UnexpectedExit?.Invoke();
             };
@@ -76,7 +99,13 @@ public sealed class EngineController : IAsyncDisposable
             await ready.Task.WaitAsync(TimeSpan.FromSeconds(20));
             using var response = await api.GetAsync("version");
             response.EnsureSuccessStatusCode();
+            networkGuard?.AllowInterface(ConfigBuilder.TunName);
+            if (networkGuard is not null) Log?.Invoke("应用网卡约束已启用：受控应用不能绕过 NICRoute 直接使用其他网卡；不依赖联网探测。");
             selections = RuleResolver.Selections(settings, adapters);
+            ApplicationTraffic.Configure(settings, adapters); ApplicationTraffic.Begin();
+            applicationFeed = new(monitorPort, secret, ApplicationTraffic.Receive, ApplicationTraffic.SetOnline);
+            try { await applicationFeed.Ready.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException) { Log?.Invoke("应用流量监控尚未连接，将自动重试；分流继续运行。"); }
             IsReady = true;
             foreach (var adapter in adapters) Log?.Invoke($"网卡出口：{adapter.Tag} → {adapter.Name}（{adapter.Status}）");
             Log?.Invoke("分流已启动。TCP / UDP 连接按应用规则选择网卡。");
@@ -109,8 +138,20 @@ public sealed class EngineController : IAsyncDisposable
             foreach (var (tag, target) in RuleResolver.Selections(settings, adapters))
             {
                 if (GetSelectedOutbound(tag) == target) continue;
-                using var response = await api.PutAsJsonAsync("proxies/" + Uri.EscapeDataString(tag), new { name = target });
-                response.EnsureSuccessStatusCode();
+                try
+                {
+                    using var response = await api.PutAsJsonAsync("proxies/" + Uri.EscapeDataString(tag), new { name = target });
+                    response.EnsureSuccessStatusCode();
+                    var actual = await api.GetFromJsonAsync<JsonObject>("proxies/" + Uri.EscapeDataString(tag));
+                    if (actual?["now"]?.GetValue<string>() != target) throw new IOException("引擎没有确认指定出口。");
+                }
+                catch (Exception error) when (target != RuleResolver.BlockTag && error is HttpRequestException or IOException or System.Text.Json.JsonException)
+                {
+                    using var denied = await api.PutAsJsonAsync("proxies/" + Uri.EscapeDataString(tag), new { name = RuleResolver.BlockTag });
+                    denied.EnsureSuccessStatusCode();
+                    lock (selections) selections[tag] = RuleResolver.BlockTag;
+                    throw new IOException("指定网卡出口未能生效，已将该规则阻断。请保存并重新应用。", error);
+                }
                 lock (selections) selections[tag] = target;
                 Log?.Invoke($"出口切换：{tag} → {target}（原有连接关闭，应用可重连）");
             }
@@ -145,6 +186,9 @@ public sealed class EngineController : IAsyncDisposable
     {
         stopping = true;
         IsReady = false;
+        Volatile.Write(ref enginePid, 0);
+        if (applicationFeed is not null) { await applicationFeed.DisposeAsync(); applicationFeed = null; }
+        ApplicationTraffic.Stop();
         if (ownedProcess is not null)
         {
             await ownedProcess.DisposeAsync();
@@ -152,6 +196,7 @@ public sealed class EngineController : IAsyncDisposable
             ownedProcess = null;
             process = null;
         }
+        networkGuard?.Dispose(); networkGuard = null;
         api?.Dispose(); api = null;
         if (reject is not null) { await reject.DisposeAsync(); reject = null; }
         // Contains an ephemeral localhost API secret. Do not leave it in a diagnostics export.

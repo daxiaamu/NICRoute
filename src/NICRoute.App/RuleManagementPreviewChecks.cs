@@ -2,6 +2,20 @@ namespace NICRoute.App;
 
 public partial class MainWindow
 {
+    internal string VerifyApplicationTrafficPreview()
+    {
+        if (!preview) throw new InvalidOperationException("仅允许预览检查。");
+        UpdateLayout();
+        if (MainTabs.TranslatePoint(new Point(0, 0), this).Y > 230 || GlobalAdapter.TranslatePoint(new Point(0, 0), this).Y > 80)
+            throw new InvalidOperationException("顶部布局占用过高，应保留更多列表空间。");
+        if (applicationCards.Count < settings.Rules.Count || !applicationCards.Any(c => c.ActualRoute == adapters[0].Name && c.Uploaded != "0 B"))
+            throw new InvalidOperationException("示例应用的流量或实际网卡未绑定。");
+        var originalSearch = ApplicationSearch.Text;
+        ApplicationSearch.Text = "MICROSOFT";
+        if (ApplicationTrafficItems.Items.Count != 2) throw new InvalidOperationException("应用流量搜索无效。");
+        ApplicationSearch.Text = originalSearch;
+        return "PASS: compact toolbar preserves list height; app upload/download, actual interface and search bind correctly.";
+    }
     internal string VerifyTrafficPreview()
     {
         if (!preview) throw new InvalidOperationException("流量界面检查仅允许预览模式运行。");

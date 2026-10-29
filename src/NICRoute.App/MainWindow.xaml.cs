@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer trafficTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
     private readonly AdapterTrafficMonitor trafficMonitor = new();
     private readonly System.Collections.ObjectModel.ObservableCollection<AdapterCard> adapterCards = [];
+    private readonly ObservableCollection<ApplicationTrafficCard> applicationCards = [];
     private bool trafficPolling;
     private Task trafficPoll = Task.CompletedTask;
     private readonly Queue<string> logs = new();
@@ -45,6 +46,9 @@ public partial class MainWindow : Window
         engine = new(Path.Combine(AppContext.BaseDirectory, "engine", "sing-box.exe"), Path.Combine(store.DirectoryPath, "runtime"));
         InitializeComponent();
         AdapterItems.ItemsSource = TrafficItems.ItemsSource = adapterCards;
+        ApplicationTrafficItems.ItemsSource = System.Windows.Data.CollectionViewSource.GetDefaultView(applicationCards);
+        System.Windows.Data.CollectionViewSource.GetDefaultView(applicationCards).Filter = value => value is ApplicationTrafficCard card &&
+            (card.Name.Contains(ApplicationSearch.Text.Trim(), StringComparison.OrdinalIgnoreCase) || card.Detail.Contains(ApplicationSearch.Text.Trim(), StringComparison.OrdinalIgnoreCase));
         if (!preview)
         {
             try { settings = store.Load(); }
@@ -56,17 +60,19 @@ public partial class MainWindow : Window
         adapters = AdapterCatalog.GetAdapters();
         if (preview) AddPreviewData();
         activeSettings = SettingsStore.Clone(settings);
+        engine.ApplicationTraffic.Configure(activeSettings, adapters);
         engine.Log += AddLog;
         engine.UnexpectedExit += () => Dispatcher.BeginInvoke(() =>
         {
             SetStatus("引擎已退出", false);
             StartButton.Content = "启动分流";
-            NoticeText.Text = "分流引擎意外退出，Windows 已恢复自身路由。请检查日志后重启分流。";
+            NoticeText.Text = engine.HasNetworkGuard ? "引擎已退出，受控应用的网卡约束保留。请重启分流，或从托盘选择停止分流以解除。" : "分流引擎意外退出，Windows 已恢复自身路由。请检查日志后重启分流。";
             tray?.ShowBalloonTip(4000, "NICRoute 分流已停止", "引擎意外退出，请检查日志。", System.Windows.Forms.ToolTipIcon.Warning);
         });
         UpdateControls();
         loading = false;
         RefreshRows();
+        RefreshApplicationTraffic();
         VersionText.Text = $"NICRoute {product.VersionName} · Windows 10/11 x64 · .NET 10 · sing-box 1.14.4\n配置目录：" + store.DirectoryPath;
         InitializeUpdates();
         timer.Tick += async (_, _) => await PollAdaptersAsync();
@@ -107,14 +113,48 @@ public partial class MainWindow : Window
         try
         {
             var snapshot = adapters.ToArray();
-            var readings = await Task.Run(() => trafficMonitor.Sample(snapshot));
+            var readings = await Task.Run(() => { engine.RefreshObservedInterfaces(snapshot); return trafficMonitor.Sample(snapshot); });
             if (closing) return;
             foreach (var card in adapterCards)
                 if (readings.TryGetValue(card.Id, out var reading)) card.UpdateTraffic(reading);
+            RefreshApplicationTraffic();
         }
         catch (Exception error) when (error is System.Net.NetworkInformation.NetworkInformationException or InvalidOperationException or NotSupportedException)
         { if (!closing) AddLog("流量监控：" + error.Message); }
         finally { trafficPolling = false; }
+    }
+    private void RefreshApplicationTraffic()
+    {
+        var refilter = false;
+        foreach (var snapshot in engine.ApplicationTraffic.Snapshot())
+        {
+            var card = applicationCards.FirstOrDefault(c => c.Key.Equals(snapshot.Key, StringComparison.OrdinalIgnoreCase));
+            if (card is null) applicationCards.Add(new(snapshot));
+            else { refilter |= card.Name != snapshot.Name || card.Detail != snapshot.Detail; card.Update(snapshot); }
+        }
+        if (refilter && ApplicationSearch.Text.Length > 0) System.Windows.Data.CollectionViewSource.GetDefaultView(applicationCards).Refresh();
+        ApplicationTrafficEmpty.Visibility = ApplicationTrafficItems.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ApplicationMonitorStatus.Text = engine.IsReady ? "每秒刷新 · 仅统计分流接管的连接 · 实际网卡来自连接出口，不是规则预览。" :
+            "启动分流后显示每个应用的流量和实际出口；下方保留本次软件运行已采集的累计量。";
+    }
+    private void ApplicationSearch_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (ApplicationTrafficItems is null) return;
+        System.Windows.Data.CollectionViewSource.GetDefaultView(applicationCards).Refresh();
+        ApplicationTrafficEmpty.Visibility = ApplicationTrafficItems.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+    internal void PreviewApplicationTraffic()
+    {
+        if (!preview || settings.Rules.Count == 0) return;
+        engine.ApplicationTraffic.Begin(); engine.ApplicationTraffic.SetOnline(true);
+        var metadata = new ObservedConnection("preview-connection", settings.Rules[0].Application.InstallLocation + "\\ToDo.exe", 1234,
+            "tcp", "192.0.2.1:443", adapters[0].Tag, [adapters[0].Tag, settings.Rules[0].SelectorTag], 0, 0, false);
+        engine.ApplicationTraffic.Receive(new(true, [new(0, metadata.Id, metadata, 0, 0)]));
+        engine.ApplicationTraffic.Snapshot(Stopwatch.GetTimestamp() - Stopwatch.Frequency);
+        engine.ApplicationTraffic.Receive(new(false, [new(1, metadata.Id, null, 81920, 245760)]));
+        RefreshApplicationTraffic();
+        ApplicationMonitorStatus.Text = "界面预览 · 示例应用流量，不启动分流。实际运行时由引擎连接事件统计。";
+        ApplicationTrafficTab.IsSelected = true;
     }
     internal async Task PrimeTrafficPreviewAsync()
     {
@@ -264,10 +304,17 @@ public partial class MainWindow : Window
         ProbePort.Text = settings.ProbePort.ToString();
         DnsAddress.Text = settings.DnsServer;
         SyncAdapterCards();
-        AdapterSummary.Text = $"{adapters.Count(a => a.Available)} 张可用 / {adapters.Count} 张网卡 · 每 5 秒检测变化，首选网卡恢复后自动切回";
+        UpdateAdapterSummary();
         loading = wasLoading;
     }
     private string AdapterName(string id) => adapters.FirstOrDefault(a => a.Id == id)?.Name ?? "已移除的网卡";
+    private void UpdateAdapterSummary()
+    {
+        AdapterSummary.Text = $"{adapters.Count(a => a.Available)}/{adapters.Count} 网卡可用 · " +
+            (activeSettings.ProbeInternet ? "联网检测开 · 流量1秒" : "仅检测链路 · 流量1秒");
+        AdapterSummary.Foreground = (Brush)FindResource("Muted");
+    }
+    private void OpenNetworkOptions_Click(object sender, System.Windows.Input.MouseButtonEventArgs e) => NetworkTab.IsSelected = true;
     private void RefreshRows()
     {
         if (RuleItems is null) return;
@@ -298,7 +345,7 @@ public partial class MainWindow : Window
         RuleSummary.Text = $"共 {settings.Rules.Count} 个应用 · {settings.Rules.Count(r => r.Enabled)} 个已启用 · " +
             (dirty ? "有修改待保存并应用" : "在这里统一管理首选网卡和回退规则");
         RuleCount.Text = $"显示 {matching.Length} / {settings.Rules.Count} 个应用";
-        RouteColumnTitle.Text = engine.IsReady && !dirty ? "当前出口" : "规则出口预览";
+        RouteColumnTitle.Text = "规则出口预览";
         SaveButton.Content = dirty ? "保存并应用 *" : "保存并应用";
         RefreshSelectionControls();
     }
@@ -420,7 +467,9 @@ public partial class MainWindow : Window
         var restart = engine.IsRunning;
         if (restart) { SetStatus("重新应用中", false); await engine.StopAsync(); }
         activeSettings = SettingsStore.Clone(settings);
+        engine.ApplicationTraffic.Configure(activeSettings, adapters);
         probeFailures.Clear();
+        UpdateAdapterSummary();
         dirty = false;
         if (restart)
         {
@@ -517,7 +566,7 @@ public partial class MainWindow : Window
             var draftId = settings.GlobalAdapterId;
             GlobalAdapter.ItemsSource = Options(true); GlobalAdapter.SelectedValue = draftId;
             SyncAdapterCards();
-            AdapterSummary.Text = $"{adapters.Count(a => a.Available)} 张可用 / {adapters.Count} 张网卡 · 每 5 秒检测变化，首选网卡恢复后自动切回";
+            UpdateAdapterSummary();
             loading = false;
             RefreshRows();
         }

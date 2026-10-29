@@ -7,7 +7,7 @@ public static class ConfigBuilder
 {
     public const string TunName = "NICRoute";
     public static JsonObject Build(AppSettings settings, IReadOnlyList<AdapterInfo> adapters,
-        int apiPort, string apiSecret, int rejectPort, bool useTun = true, int testPort = 0)
+        int apiPort, string apiSecret, int rejectPort, bool useTun = true, int testPort = 0, int monitorPort = 0)
     {
         settings.Validate();
         var outbounds = new JsonArray
@@ -46,12 +46,17 @@ public static class ConfigBuilder
             dnsRule["server"] = "dns-" + rule.SelectorTag;
             dnsRules.Add(dnsRule);
         }
+        // A failed process lookup must not silently turn a protected application's
+        // connection into an unconfigured connection using the global/system route.
+        if (settings.Rules.Any(r => r.Enabled && r.Fallback == FallbackKind.Block))
+            routeRules.Add(new JsonObject { ["process_path_regex"] = Array([".+"]), ["invert"] = true,
+                ["action"] = "route", ["outbound"] = RuleResolver.BlockTag });
         var inbound = useTun
             ? new JsonObject { ["type"] = "tun", ["tag"] = "tun-in", ["interface_name"] = TunName,
                 ["address"] = Array(["172.31.255.1/30", "fd42:4e49:4352::1/126"]),
                 ["auto_route"] = true, ["strict_route"] = true, ["dns_mode"] = "hijack", ["mtu"] = 1500 }
             : new JsonObject { ["type"] = "mixed", ["tag"] = "test-in", ["listen"] = "127.0.0.1", ["listen_port"] = testPort };
-        return new JsonObject
+        var config = new JsonObject
         {
             ["log"] = new JsonObject { ["level"] = "info", ["timestamp"] = true, ["disabled"] = false },
             ["dns"] = new JsonObject { ["servers"] = dnsServers, ["rules"] = dnsRules,
@@ -63,6 +68,10 @@ public static class ConfigBuilder
             ["experimental"] = new JsonObject { ["clash_api"] = new JsonObject
                 { ["external_controller"] = "127.0.0.1:" + apiPort, ["secret"] = apiSecret } }
         };
+        if (monitorPort > 0)
+            config["services"] = new JsonArray(new JsonObject { ["type"] = "api", ["tag"] = "application-monitor",
+                ["listen"] = "127.0.0.1", ["listen_port"] = monitorPort, ["secret"] = apiSecret });
+        return config;
     }
 
     private static JsonObject Match(ApplicationTarget app) => app.Kind == ApplicationKind.Desktop

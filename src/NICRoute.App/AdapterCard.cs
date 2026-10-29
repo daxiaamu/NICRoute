@@ -29,11 +29,5 @@ public sealed class AdapterCard(AdapterInfo info) : INotifyPropertyChanged
     private void Changed() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
     private string Rate(double? value) => traffic.State == TrafficState.Disconnected ? "0 B/s" :
         value is { } rate ? Bytes(rate) + "/s" : "—";
-    private static string Bytes(double value)
-    {
-        var units = new[] { "B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB" };
-        var unit = 0;
-        while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
-        return value.ToString(unit == 0 ? "F0" : "F1", CultureInfo.CurrentCulture) + " " + units[unit];
-    }
+    private static string Bytes(double value) => TrafficDisplay.Bytes(value);
 }
