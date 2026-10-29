@@ -1,0 +1,12 @@
+{
+  "stable": {
+    "policyRevision": 2,
+    "maxForcedVersionCode": 0,
+    "reason": "首次启用 Windows 自更新；不强制现有版本更新。"
+  },
+  "beta": {
+    "policyRevision": 2,
+    "maxForcedVersionCode": 0,
+    "reason": "预留测试版渠道；未发布测试版，不启用强制更新。"
+  }
+}

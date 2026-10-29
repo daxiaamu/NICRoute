@@ -26,3 +26,15 @@ The runtime package's original license and third-party notices are copied to the
 - https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json
 
 NICRoute itself uses only .NET framework libraries and Windows system APIs; no additional NuGet packages are required.
+
+## MUDL-C 0.5.14
+
+Copyright (C) 2026 daxiaamu. License: GPL-3.0-only.
+
+The unmodified Windows x64 executable is bundled as `engine/mudl.exe`. Its original license is `engine/LICENSE.mudl`, and its version, source URL and SHA256 are in `engine/mudl.lock.json`. It is independently hash-verified before use.
+
+- Project: https://github.com/daxiaamu/mudl-c
+- Exact release: https://github.com/daxiaamu/mudl-c/releases/tag/v0.5.14
+- Corresponding source: https://github.com/daxiaamu/mudl-c/archive/refs/tags/v0.5.14.tar.gz
+
+MUDL handles concurrent mirrors and ranges; NICRoute independently verifies the final update ZIP before staging and installation. The download engine is a separate executable, not an additional NuGet dependency.

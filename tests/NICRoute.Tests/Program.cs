@@ -111,6 +111,11 @@ finally
     if (Path.GetDirectoryName(temp) == Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar) && Path.GetFileName(temp).StartsWith("NICRoute-tests-"))
         Directory.Delete(temp, true);
 }
+passed+=await UpdateTests.RunAsync();
+var updaterIndex=Array.IndexOf(args,"--updater-e2e");
+if(updaterIndex>=0) passed+=await UpdateTests.RunUpdaterAsync(args[updaterIndex+1],args[Array.IndexOf(args,"--fixtures")+1]);
+var mudlIndex=Array.IndexOf(args,"--mudl");
+if(mudlIndex>=0) passed+=await UpdateTests.RunMudlAsync(args[mudlIndex+1]);
 Console.WriteLine($"PASS: {passed} assertions");
 
 async Task IntegrationAsync(string enginePath, string work)
@@ -235,6 +240,7 @@ async Task IntegrationAsync(string enginePath, string work)
         if (!child.HasExited) child.Kill(true);
         await child.WaitForExitAsync();
         var log = await stdout + await stderr;
+        Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(),"artifacts"));
         await File.WriteAllTextAsync(Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "integration-engine.log"), log);
         Assert(log.Contains(test.Rules[0].Application.ExecutablePath, StringComparison.OrdinalIgnoreCase), "engine identifies executable path in connection logs");
     }

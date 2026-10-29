@@ -1,0 +1,12 @@
+{
+  "maximumMirrors": 3,
+  "urlTemplates": [
+    "https://ghfast.top/{officialUrl}",
+    "https://gh-proxy.com/{officialUrl}",
+    "https://ghproxy.net/{officialUrl}",
+    "https://gh.llkk.cc/{officialUrl}",
+    "https://ghp.keleyaa.com/{officialUrl}",
+    "https://gh.monlor.com/{officialUrl}",
+    "https://xget.xi-xu.me/gh/{owner}/{repo}/releases/download/{tag}/{asset}"
+  ]
+}

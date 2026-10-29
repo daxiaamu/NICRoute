@@ -44,6 +44,20 @@ Windows 10 / 11 x64 中文网卡分流工具。使用 WPF 桌面界面管理 sin
 
 在目标应用中访问你信任的出口 IP 查询服务，并在“运行日志”核对进程路径及 `nic-*` 出口。局域网访问同样遵循应用规则，选定网卡必须具有到目的网络的路由。
 
+## 软件自动更新（0.2.0 起）
+
+“软件更新”页提供手动检查，默认在主界面可用 2 秒后自动检查一次。自动和手动入口共用进行中的检查；手动检查总有结果，且不会使用过期的已完成会话缓存。稳定版只检查稳定渠道，测试版选项同时检查稳定和测试渠道，并按整数版本代码选择更新。
+
+下载使用 [MUDL-C](https://github.com/daxiaamu/mudl-c) 0.5.14，支持最多 16 个来源、32 个连接、镜像同时传输和续传。连接数可在界面调整。GitHub 官方下载地址优先，镜像只有在 Actions 中完整下载并核对 SHA256 后才进入备用列表，不要求凑齐固定数量。
+
+发现可选更新后可跳过该版本、忽略或下载并重启。忽略后更新入口保留红点；手动检查仍可显示跳过的版本。没有静默替换或后台强行安装。更新前会保存当前规则、停止分流并退出，独立辅助进程再替换程序文件；写入失败或新版本未通过启动确认时尝试恢复原版本。配置保存在安装目录之外，更新不会重置。
+
+**0.1.0 没有更新模块，需要手动安装一次 0.2.0。** 此后可在软件内更新。强制更新策略已支持，但当前 `maxForcedVersionCode` 为 0，不强制更新。
+
+更新以 GitHub 官方 HTTPS 内容为信任根。元数据有 7 个入口；官方指针固定不可变清单的 SHA256，客户端拒绝策略回滚与同版本冲突。官方源不可用时只能复用未过期且已被官方确认的本地指针，不能由未经认证的镜像建立新更新。安装前再次校验整包 SHA256、包内每个文件、真实 PE 程序的应用标识/平台/版本代码；已安装版本有可信 Authenticode 签名时还要求签名发布者连续。当前构建未配置发行方代码签名，SHA256 本身不能替代签名。
+
+更新设置与已接受策略保存在 `update-settings.json`。下载、备份、安装结果在配置目录的 `updates` 子目录；备份保留供排查。断电、系统崩溃、其他用户同时占用程序文件等情况仍可能需要手动恢复。详情及发版步骤见 [更新实现说明](docs/updates.md)。
+
 ## 配置与隐私
 
 配置保存在 `%LOCALAPPDATA%\NICRoute\settings.json`，支持 JSON 导入/导出。网卡以稳定的接口 ID 保存。程序不设置开机自启，不安装后台服务，不上传配置、日志或遥测。连接日志仅在内存中保留最近 500 条，包含进程路径和目标地址。
@@ -52,7 +66,7 @@ Windows 10 / 11 x64 中文网卡分流工具。使用 WPF 桌面界面管理 sin
 
 ## 开发与构建
 
-要求 Windows x64、.NET 10 SDK、PowerShell。没有第三方 NuGet UI 依赖。
+要求 Windows x64、.NET 10 SDK、PowerShell 7。没有第三方 NuGet UI 依赖。
 
 ```powershell
 # 从官方 GitHub 下载固定版本引擎，并校验官方 release SHA256
@@ -66,6 +80,9 @@ Windows 10 / 11 x64 中文网卡分流工具。使用 WPF 桌面界面管理 sin
 
 # 本机集成测试：使用 mixed 入站，不启动 TUN、不修改系统路由
 dotnet run --project tests\NICRoute.Tests -c Release -- --engine "$PWD\engine\sing-box.exe" --integration --catalog
+
+# 隔离目录中的真实更新进程：成功重启与失败回滚
+.\scripts\Verify-Updater.ps1
 ```
 
 运行包：`dist\NICRoute-win-x64\NICRoute.exe`，ZIP：`dist\NICRoute-win-x64.zip`。
@@ -77,6 +94,9 @@ dotnet run --project tests\NICRoute.Tests -c Release -- --engine "$PWD\engine\si
 - `src/NICRoute.Core`：配置存储、Windows 应用/网卡发现、纯回退策略、引擎配置、带认证的本机出口切换及进程生命周期。
 - `src/NICRoute.App`：WPF 中文界面、规则编辑、托盘、UAC 重启、连通性检测及应用配置。
 - `tests/NICRoute.Tests`：无测试框架依赖的策略矩阵、包版本匹配、配置检查及真实引擎本机集成测试；任一断言失败返回非零退出码。
+- `src/NICRoute.Core/Updates`：共用检查会话、权威指针/清单、MUDL 适配、文件校验与更新事务。
+- `src/NICRoute.Updater`：独立进程等待旧版本退出、替换文件、验证重启并在失败时回滚。
+- `tools/NICRoute.UpdateTool`：从实际 PE 读取更新身份、生成完整文件清单、校验 Actions 输出。
 
 数据路径：`应用 → TUN → 进程路径/包目录匹配 → 应用 selector → 绑定物理网卡的 direct 出口`。全局也有独立 selector。“不联网”selector 指向本机 SOCKS 拒绝端点，端点从不创建对外 socket。使用这一方式是因为 sing-box 1.13+ 已移除 block outbound，且 selector 不能指向路由 reject action。
 

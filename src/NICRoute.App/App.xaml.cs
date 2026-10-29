@@ -60,10 +60,26 @@ public partial class App : System.Windows.Application
         var window = new MainWindow(previewIndex >= 0, dataDirectory);
         MainWindow = window;
         window.Show();
+        if(previewIndex>=0&&e.Args.Contains("--updates-tab")) window.UpdatesTab.IsSelected=true;
+        var updateIndex=Array.IndexOf(e.Args,"--update-session");
+        if(updateIndex>=0&&updateIndex+1<e.Args.Length&&Guid.TryParseExact(e.Args[updateIndex+1],"N",out var session))
+        {
+            var sessionDirectory=Path.Combine(window.DataDirectory,"updates",session.ToString("N"));
+            if(Directory.Exists(sessionDirectory)) File.WriteAllText(Path.Combine(sessionDirectory,"app-ready"),"ready");
+        }
         if (previewIndex >= 0 && previewIndex + 1 < e.Args.Length)
         {
             Window rendered = window;
-            if (e.Args.Contains("--editor"))
+            if(e.Args.Contains("--update-dialog"))
+            {
+                var sample=new NICRoute.Core.Updates.UpdateManifest{Channel="stable",PolicyRevision=3,VersionCode=3,VersionName="0.2.1",Size=110000000,
+                    Sha256=new string('0',64),PublishedAt=DateTimeOffset.UtcNow.ToString("O"),
+                    Changelog="> 更新界面预览，不检查或下载真实更新。\n\n## 更新内容\n\n- 使用 **MUDL** 多镜像并发下载，最多 32 个连接。\n- 保留网卡规则，安装前重新验证 SHA256。\n- 更新失败时恢复原版本。\n\n下载完成后将停止分流并重启软件。",
+                    ReleaseUrl="https://github.com/daxiaamu/NICRoute/releases/tag/v0.2.1",Urls=["https://github.com/daxiaamu/NICRoute/releases/download/v0.2.1/NICRoute-win-x64.zip"]};
+                rendered=new UpdateDialog(sample,false,(_,_)=>Task.FromException<string>(new InvalidOperationException("预览不下载")),(_,_)=>Task.CompletedTask,CancellationToken.None){Owner=window};
+                rendered.Show();
+            }
+            else if (e.Args.Contains("--editor"))
             {
                 rendered = new RuleEditor(NICRoute.Core.AdapterCatalog.GetAdapters()) { Owner = window };
                 rendered.Show();

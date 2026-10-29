@@ -6,11 +6,10 @@ on:
       tag:
         description: Release tag
         required: true
-        default: v0.1.0
+        default: v0.2.0
       source_commit:
         description: Full commit SHA to build and tag
         required: true
-        default: 10fa144edf0a64dc659cb501785b977df49efcf3
 
 permissions:
   contents: write
@@ -58,8 +57,38 @@ jobs:
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           dotnet run --project tests/NICRoute.Tests -c Release --no-build -- --engine "$PWD/engine/sing-box.exe" --integration
           if ($LASTEXITCODE -ne 0) { throw 'Engine integration tests failed.' }
+      - name: Verify updater restart and rollback in isolated fixtures
+        shell: pwsh
+        working-directory: build
+        run: |
+          if (Test-Path scripts/Verify-Updater.ps1) { ./scripts/Verify-Updater.ps1 }
+      - name: Verify actual MUDL download
+        shell: pwsh
+        working-directory: build
+        run: |
+          if (Test-Path engine/mudl.exe) {
+            dotnet run --project tests/NICRoute.Tests -c Release --no-build -- --mudl "$PWD/engine/mudl.exe"
+            if ($LASTEXITCODE -ne 0) { throw 'MUDL integration failed.' }
+          }
+      - name: Verify published WPF application starts
+        shell: pwsh
+        working-directory: build
+        run: |
+          $preview = Join-Path $PWD 'artifacts/published-preview.png'
+          $app = Start-Process -FilePath './dist/NICRoute-win-x64/NICRoute.exe' -ArgumentList @('--preview', $preview) -WindowStyle Hidden -PassThru
+          if (-not $app.WaitForExit(30000)) { $app.Kill(); throw 'Published application startup timed out.' }
+          if ($app.ExitCode -ne 0 -or -not (Test-Path $preview)) { throw 'Published application startup failed.' }
       - name: Upload verified assets and publish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/Publish-Release.ps1 -ArtifactDirectory ./build/dist -Tag $env:RELEASE_TAG -TargetCommit $env:SOURCE_COMMIT
+      - name: Verify published update feed with the client
+        shell: pwsh
+        working-directory: build
+        run: |
+          $tool = './tools/NICRoute.UpdateTool/bin/Release/net10.0-windows/NICRoute.UpdateTool.dll'
+          if ((Test-Path $tool) -and -not $env:RELEASE_TAG.Contains('-')) {
+            dotnet $tool check-live "$PWD/artifacts/live-update-state"
+            if ($LASTEXITCODE -ne 0) { throw 'Published update feed was rejected by the client.' }
+          }

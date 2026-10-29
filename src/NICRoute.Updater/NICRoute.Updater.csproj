@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType><Version>0.2.0</Version><RuntimeFrameworkVersion Condition="'$(SelfContained)' == 'true'">10.0.14</RuntimeFrameworkVersion></PropertyGroup>
+  <ItemGroup><ProjectReference Include="..\NICRoute.Core\NICRoute.Core.csproj" /></ItemGroup>
+</Project>

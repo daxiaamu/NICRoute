@@ -23,6 +23,14 @@ public partial class MainWindow : Window
     private IReadOnlyList<AdapterInfo> adapters = [];
     private System.Windows.Forms.NotifyIcon? tray;
     private bool loading = true, busy, polling, dirty, closing;
+    private readonly CancellationTokenSource updateLifetime=new();
+    private UpdatePreferences updatePreferences=new();
+    private UpdatePreferenceStore? updatePreferenceStore;
+    private UpdateHttp? updateHttp;
+    private UpdateManager? updates;
+    private UpdateDialog? updateDialog;
+    private readonly ProductIdentity product=ProductIdentity.Read(Path.Combine(AppContext.BaseDirectory,"NICRoute.dll"));
+    public string DataDirectory => store.DirectoryPath;
 
     public MainWindow(bool preview = false, string? dataDirectory = null)
     {
@@ -52,7 +60,8 @@ public partial class MainWindow : Window
         UpdateControls();
         loading = false;
         RefreshRows();
-        VersionText.Text = "NICRoute 0.1.0 · Windows 10/11 x64 · .NET 10 · sing-box 1.14.4\n配置目录：" + store.DirectoryPath;
+        VersionText.Text = $"NICRoute {product.VersionName} · Windows 10/11 x64 · .NET 10 · sing-box 1.14.4\n配置目录：" + store.DirectoryPath;
+        InitializeUpdates();
         timer.Tick += async (_, _) => await PollAdaptersAsync();
         logTimer.Tick += (_, _) => FlushLogs();
         if (!preview)
@@ -62,6 +71,103 @@ public partial class MainWindow : Window
             logTimer.Start();
         }
         else NoticeText.Text = "界面预览 · 示例应用规则，不启动分流、不保存配置。";
+    }
+
+    private void InitializeUpdates()
+    {
+        InstalledVersionText.Text=$"当前版本 {product.VersionName} · 版本代码 {product.VersionCode} · Windows x64";
+        updatePreferenceStore=new(store.DirectoryPath);
+        if(!preview)
+            try { updatePreferences=updatePreferenceStore.Load(); }
+            catch(Exception error) when(error is IOException or InvalidDataException or System.Text.Json.JsonException)
+            { AddLog("更新设置读取失败："+error.Message); updatePreferences.CheckOnStartup=false; }
+        var wasLoading=loading; loading=true;
+        UpdateChannel.SelectedValue=updatePreferences.Channel;
+        UpdateConnections.ItemsSource=new[]{1,4,8,16,32}; UpdateConnections.SelectedItem=updatePreferences.DownloadConnections;
+        AutoUpdateCheck.IsChecked=updatePreferences.CheckOnStartup;
+        loading=wasLoading;
+        if(preview) return;
+        updateHttp=new();
+        var feed=new UpdateFeed(updateHttp,updatePreferences,updatePreferenceStore.Save);
+        feed.Diagnostic+=message=>AddLog("更新源："+message);
+        updates=new(product.VersionCode,updatePreferences,feed.CheckAsync,updatePreferenceStore.Save);
+        Loaded+=async(_,_)=>
+        {
+            try { await Task.Delay(2000,updateLifetime.Token); if(updatePreferences.CheckOnStartup&&!closing) await CheckUpdatesAsync(false); }
+            catch(OperationCanceledException) { }
+        };
+    }
+    private void UpdatePreference_Changed(object sender,RoutedEventArgs e)
+    {
+        if(loading||preview||updatePreferenceStore is null) return;
+        updatePreferences.CheckOnStartup=AutoUpdateCheck.IsChecked==true;
+        updatePreferences.Channel=UpdateChannel.SelectedValue as string??"stable";
+        updatePreferences.DownloadConnections=UpdateConnections.SelectedItem as int? ??32;
+        try { updatePreferenceStore.Save(updatePreferences); }
+        catch(Exception error) when(error is IOException or UnauthorizedAccessException) { AddLog("更新设置保存失败："+error.Message); UpdateStatusText.Text=error.Message; }
+    }
+    private async void CheckUpdate_Click(object sender,RoutedEventArgs e)=>await CheckUpdatesAsync(true);
+    private async Task CheckUpdatesAsync(bool manual)
+    {
+        if(updates is null||closing) return;
+        if(manual) CheckUpdateButton.IsEnabled=false;
+        UpdateChannel.IsEnabled=false;
+        UpdateStatusText.Text="正在检查更新…";
+        var result=await updates.CheckAsync(manual,updateLifetime.Token);
+        if(closing) return;
+        CheckUpdateButton.IsEnabled=UpdateChannel.IsEnabled=true;
+        UpdateDot.Visibility=updates.KnownUpdate is null?Visibility.Collapsed:Visibility.Visible;
+        UpdateStatusText.Text=result.Status switch
+        {
+            UpdateStatus.Current=>$"当前已是最新版本（{product.VersionName}）",
+            UpdateStatus.Available=>$"可更新到 {result.Manifest!.VersionName}，已验证官方更新信息。",
+            _=>"检查失败："+result.Error
+        };
+        if(!updates.TryClaimPresentation(result,manual)) return;
+        if(result.Status!=UpdateStatus.Available)
+        {
+            if(manual||result.ManualRequested) System.Windows.MessageBox.Show(this,UpdateStatusText.Text,"NICRoute 软件更新",MessageBoxButton.OK,
+                result.Status==UpdateStatus.Failed?MessageBoxImage.Information:MessageBoxImage.None);
+            return;
+        }
+        if(updateDialog is not null) { updateDialog.Activate(); return; }
+        var manifest=result.Manifest!;
+        var required=updates.IsRequired(manifest)||manifest.RequiredFor(product.VersionCode);
+        if(required&&engine.IsRunning) await StopRoutingAsync();
+        var downloader=new UpdateDownloader(new MudlDownloadEngine(Path.Combine(AppContext.BaseDirectory,"engine","mudl.exe"),updateHttp!.ResolveHttpsAsync));
+        updateDialog=new(manifest,required,
+            (progress,token)=>downloader.DownloadAsync(manifest,Path.Combine(store.DirectoryPath,"updates","downloads"),updatePreferences.DownloadConnections,progress,token),
+            (zip,token)=>InstallUpdateAsync(manifest,zip,token),updateLifetime.Token){Owner=this};
+        try
+        {
+            updateDialog.ShowDialog();
+            if(updateDialog.Skipped) updates.Skip(manifest);
+            if(required&&!closing) Close();
+        }
+        finally { updateDialog=null; }
+    }
+    private async Task InstallUpdateAsync(UpdateManifest manifest,string zip,CancellationToken token)
+    {
+        if(updates?.KnownUpdate is { } latest&&(latest.VersionCode!=manifest.VersionCode||latest.Sha256!=manifest.Sha256))
+            throw new InvalidDataException("已有更新的版本信息，请重新检查更新。");
+        var wasRunning=engine.IsRunning;
+        var plan=await UpdateInstaller.PrepareAsync(manifest,zip,store.DirectoryPath,AppContext.BaseDirectory,wasRunning,token);
+        token.ThrowIfCancellationRequested();
+        wasRunning=engine.IsRunning;
+        if(plan.ResumeRouting!=wasRunning)
+        {
+            plan=plan with{ResumeRouting=wasRunning};
+            await File.WriteAllBytesAsync(Path.Combine(plan.SessionDirectory,"install-plan.json"),UpdateJson.Bytes(plan),token);
+        }
+        ReadNetworkOptions(); store.Save(settings); dirty=false;
+        if(wasRunning) await engine.StopAsync();
+        try { UpdateInstaller.Launch(plan); }
+        catch
+        {
+            if(wasRunning) await engine.StartAsync(activeSettings,adapters);
+            throw;
+        }
+        Close();
     }
 
     private void AddPreviewData()
@@ -210,6 +316,12 @@ public partial class MainWindow : Window
     public async Task StartRoutingAsync() => await RunBusyAsync(async () =>
     {
         if (preview) return;
+        if(updates?.RequiredUpdatePending==true)
+        {
+            await CheckUpdatesAsync(true);
+            if(updates.RequiredUpdatePending) throw new InvalidOperationException("当前版本需要更新，请在“软件更新”中重试或退出软件。");
+            return;
+        }
         await SaveAndApplyAsync();
         if (!App.IsAdministrator)
         {
@@ -338,9 +450,9 @@ public partial class MainWindow : Window
                 catch (Exception error) { ShowError(error.Message); return; }
             }
         }
-        closing = true; timer.Stop(); logTimer.Stop();
+        closing = true; timer.Stop(); logTimer.Stop(); updateLifetime.Cancel();
         IsEnabled = false;
-        try { await engine.DisposeAsync(); }
-        finally { tray?.Dispose(); _ = Dispatcher.BeginInvoke(Close); }
+        try { if(updates is not null) await updates.DrainAsync(); await engine.DisposeAsync(); }
+        finally { updateHttp?.Dispose(); tray?.Dispose(); _ = Dispatcher.BeginInvoke(Close); }
     }
 }

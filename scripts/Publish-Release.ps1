@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory)][string]$ArtifactDirectory,
-    [Parameter(Mandatory)][ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+$')][string]$Tag,
+    [Parameter(Mandatory)][ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$')][string]$Tag,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$TargetCommit,
     [string]$Repository = $env:GITHUB_REPOSITORY
 )
@@ -11,11 +11,6 @@ if (-not $env:GH_TOKEN -or $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-
 $directory = [IO.Path]::GetFullPath($ArtifactDirectory)
 $version = $Tag.Substring(1)
 $names = @('NICRoute-win-x64.zip',"NICRoute-$version-source.zip",'SHA256SUMS.txt')
-$checksums = foreach ($name in $names[0..1]) {
-    $hash = Get-FileHash -LiteralPath (Join-Path $directory $name) -Algorithm SHA256
-    $hash.Hash.ToLowerInvariant() + '  ' + $name
-}
-[IO.File]::WriteAllText((Join-Path $directory 'SHA256SUMS.txt'), ($checksums -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
 $api = "https://api.github.com/repos/$Repository"
 $headers = @{ Authorization = 'Bearer ' + $env:GH_TOKEN; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28'; 'User-Agent' = 'NICRoute-release' }
 function Get-Optional([string]$Uri) {
@@ -60,12 +55,36 @@ NICRoute 首个版本：为 Windows 应用设置不同网卡、全局默认出�
 
 源码采用 GPL-3.0-or-later，第三方许可随包提供。sing-box 完整上游源码：[v1.14.4](https://github.com/SagerNet/sing-box/archive/refs/tags/v1.14.4.tar.gz)，依赖见其中 go.mod / go.sum。NICRoute 与 SagerNet 无隶属或背书关系。
 "@
+$sourceRoot=Split-Path $directory -Parent
+$customNotes=Join-Path $sourceRoot "docs\releases\$Tag.md"
+if(Test-Path -LiteralPath $customNotes){$notes=[IO.File]::ReadAllText($customNotes)+"`n`n对应应用提交：$TargetCommit。"}
+$prerelease=$Tag.Contains('-')
 if (-not $release) {
-    $body = @{ tag_name=$Tag; target_commitish=$TargetCommit; name="NICRoute $Tag"; body=$notes; draft=$true; prerelease=$false } | ConvertTo-Json
+    $body = @{ tag_name=$Tag; target_commitish=$TargetCommit; name="NICRoute $Tag"; body=$notes; draft=$true; prerelease=$prerelease } | ConvertTo-Json
     $release = Invoke-RestMethod -Method Post -Uri "$api/releases" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
 }
+foreach($name in $names[0..1]){
+    $existing=$release.assets|Where-Object name -eq $name
+    if($existing -and $existing.state -eq 'uploaded'){
+        if($existing.digest -notmatch '^sha256:[0-9a-f]{64}$'){throw 'Published asset is missing its digest.'}
+        $local=Join-Path $directory $name
+        if(('sha256:'+(Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLowerInvariant()) -ne $existing.digest){
+            # A rerun may rebuild an identical version with different ZIP timestamps.
+            # Reuse and rehash the already-published immutable asset; never replace it.
+            $temp=$local+'.existing-download'
+            Invoke-WebRequest -Uri $existing.browser_download_url -OutFile $temp -TimeoutSec 300
+            if((Get-Item $temp).Length -ne $existing.size -or ('sha256:'+(Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash.ToLowerInvariant()) -ne $existing.digest){throw 'Existing release asset failed verification.'}
+            Move-Item -LiteralPath $temp -Destination $local -Force
+        }
+    }
+}
+$checksums=foreach($name in $names[0..1]){
+    $hash=Get-FileHash -LiteralPath (Join-Path $directory $name) -Algorithm SHA256
+    $hash.Hash.ToLowerInvariant()+'  '+$name
+}
+[IO.File]::WriteAllText((Join-Path $directory 'SHA256SUMS.txt'),($checksums -join "`n")+"`n",[Text.UTF8Encoding]::new($false))
 if ($release.draft) {
-    $body = @{ body=$notes } | ConvertTo-Json
+    $body = @{ tag_name=$Tag; target_commitish=$TargetCommit; name="NICRoute $Tag"; body=$notes } | ConvertTo-Json
     $release = Invoke-RestMethod -Method Patch -Uri "$api/releases/$($release.id)" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
 }
 foreach ($name in $names) {
@@ -93,11 +112,14 @@ foreach ($name in $names) {
     if ($asset.state -ne 'uploaded' -or $asset.digest -ne $expected -or $asset.size -ne $file.Length) { throw "Release asset missing or incorrect: $name" }
 }
 if ($release.draft) {
-    $body = @{ draft=$false; prerelease=$false; make_latest='true' } | ConvertTo-Json
+    $body = @{ tag_name=$Tag; target_commitish=$TargetCommit; name="NICRoute $Tag"; draft=$false; prerelease=$prerelease; make_latest=($(if($prerelease){'false'}else{'true'})) } | ConvertTo-Json
     $release = Invoke-RestMethod -Method Patch -Uri "$api/releases/$($release.id)" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
 }
 if ($release.draft) { throw 'Release was not published.' }
 Write-Host "Published $($release.html_url)"
+if(Test-Path -LiteralPath (Join-Path $sourceRoot 'updates\policy.json')){
+    & "$PSScriptRoot\Publish-UpdateFeed.ps1" -ArtifactDirectory $directory -Tag $Tag -ReleaseId $release.id -Repository $Repository
+}
 if ($env:GITHUB_STEP_SUMMARY) {
     "Published: $($release.html_url)`n`n" + ($checksums -join "`n") | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 }

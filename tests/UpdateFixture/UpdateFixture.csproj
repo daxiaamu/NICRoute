@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><AssemblyName>NICRoute</AssemblyName>
+    <Version Condition="'$(Version)' == ''">0.1.0</Version>
+    <FixtureVersionCode Condition="'$(FixtureVersionCode)' == ''">1</FixtureVersionCode>
+    <RuntimeFrameworkVersion Condition="'$(SelfContained)' == 'true'">10.0.14</RuntimeFrameworkVersion>
+    <DefineConstants Condition="'$(FailStartup)' == 'true'">$(DefineConstants);FAIL_STARTUP</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="NICRoute.AppId" Value="NICRoute.Windows" />
+    <AssemblyMetadata Include="NICRoute.VersionCode" Value="$(FixtureVersionCode)" />
+    <AssemblyMetadata Include="NICRoute.VersionName" Value="$(Version)" />
+    <AssemblyMetadata Include="NICRoute.Platform" Value="win-x64" />
+  </ItemGroup>
+</Project>
