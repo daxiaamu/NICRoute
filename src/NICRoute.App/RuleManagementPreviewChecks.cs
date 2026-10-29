@@ -2,6 +2,20 @@ namespace NICRoute.App;
 
 public partial class MainWindow
 {
+    internal string VerifyTrafficPreview()
+    {
+        if (!preview) throw new InvalidOperationException("流量界面检查仅允许预览模式运行。");
+        if (!ReferenceEquals(AdapterItems.ItemsSource, TrafficItems.ItemsSource) || adapterCards.Count != adapters.Count)
+            throw new InvalidOperationException("流量列表未绑定全部网卡。");
+        var cards = adapterCards.ToArray();
+        SyncAdapterCards();
+        if (!cards.SequenceEqual(adapterCards)) throw new InvalidOperationException("刷新网卡不应重新创建流量视图。");
+        if (adapters.Any(a => a.LinkUp) && !adapterCards.Any(c => c.UploadRate.EndsWith("/s") && c.DownloadRate.EndsWith("/s")))
+            throw new InvalidOperationException("活动网卡未显示速率。");
+        if (adapterCards.Any(c => c.TrafficDetail.Contains("NaN") || c.TrafficDetail.Contains("Infinity")))
+            throw new InvalidOperationException("流量格式不应包含无效数值。");
+        return "PASS: native adapter counters bind to both traffic views; card identity survives refresh.";
+    }
     // Exercise the real WPF controls and handlers using only --preview sample rules.
     internal string VerifyRuleManagementPreview()
     {
@@ -9,6 +23,7 @@ public partial class MainWindow
         var original = SettingsStore.Clone(settings);
         var originalDirty = dirty;
         var originalNotice = NoticeText.Text;
+        var originalTab = MainTabs.SelectedItem;
         var checks = new List<string>();
         RuleRow[] Visible() => ((IEnumerable<RuleRow>)RuleItems.ItemsSource).ToArray();
         void Require(bool condition, string name)
@@ -63,6 +78,7 @@ public partial class MainWindow
             settings = original; dirty = originalDirty; selectedRuleIds.Clear();
             ResetRuleFilters_Click(this, new RoutedEventArgs()); RefreshRows();
             NoticeText.Text = originalNotice;
+            MainTabs.SelectedItem = originalTab;
         }
     }
 }

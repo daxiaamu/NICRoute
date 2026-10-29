@@ -112,6 +112,8 @@ finally
         Directory.Delete(temp, true);
 }
 passed+=await UpdateTests.RunAsync();
+passed+=TrafficTests.Run();
+if(args.Contains("--traffic")) passed+=await TrafficTests.VerifyNativeAsync();
 var updaterIndex=Array.IndexOf(args,"--updater-e2e");
 if(updaterIndex>=0) passed+=await UpdateTests.RunUpdaterAsync(args[updaterIndex+1],args[Array.IndexOf(args,"--fixtures")+1]);
 var mudlIndex=Array.IndexOf(args,"--mudl");
@@ -151,6 +153,9 @@ async Task IntegrationAsync(string enginePath, string work)
             await Task.Delay(100);
         }
         Assert(ready, "actual engine starts without TUN");
+        var monitoredAdapters = AdapterCatalog.GetAdapters();
+        var trafficMonitor = args.Contains("--traffic") ? new AdapterTrafficMonitor() : null;
+        trafficMonitor?.Sample(monitoredAdapters);
         using (var unauth = new HttpClient(new SocketsHttpHandler { UseProxy = false }))
         { Assert((await unauth.GetAsync($"http://127.0.0.1:{apiPort}/proxies")).StatusCode == HttpStatusCode.Unauthorized, "control API requires secret"); }
         var proxyData = await http.GetFromJsonAsync<JsonObject>("proxies");
@@ -232,6 +237,12 @@ async Task IntegrationAsync(string enginePath, string work)
                 Assert(((IPEndPoint)received.Client.RemoteEndPoint!).Address.Equals(localAddress), "NIC-bound direct outbound uses selected interface source IP");
             }
             finally { boundDestination.Stop(); }
+        }
+        if (trafficMonitor is not null)
+        {
+            var readings = trafficMonitor.Sample(monitoredAdapters);
+            Assert(!child.HasExited && readings.Count == monitoredAdapters.Count &&
+                readings.Values.Any(r => r.State == TrafficState.Live), "native traffic monitoring works while routing engine serves TCP and UDP");
         }
     }
     finally

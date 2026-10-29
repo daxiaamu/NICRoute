@@ -21,13 +21,17 @@
       <Button Grid.Column="1" Content="刷新网卡" Click="Refresh_Click" Style="{StaticResource SmallButton}" VerticalAlignment="Center" />
     </Grid>
     <StackPanel Grid.Row="2">
-      <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" MaxHeight="123" Margin="0,0,0,14">
+      <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" MaxHeight="155" Margin="0,0,0,14">
         <ItemsControl x:Name="AdapterItems"><ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate><DataTemplate>
             <Border Style="{StaticResource Card}" Width="267" Padding="15,12" Margin="0,0,10,0">
               <StackPanel><Grid><TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" Margin="0,0,85,0" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding Status}" HorizontalAlignment="Right" FontSize="11"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource Muted}" /><Style.Triggers><DataTrigger Binding="{Binding Available}" Value="True"><Setter Property="Foreground" Value="{StaticResource Success}" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Grid>
                 <TextBlock Text="{Binding AddressLabel}" FontFamily="{StaticResource DataFont}" FontSize="11" Margin="0,9,0,6" TextTrimming="CharacterEllipsis" />
                 <TextBlock Text="{Binding Description}" Style="{StaticResource MutedText}" FontSize="10" TextTrimming="CharacterEllipsis" />
+                <Grid Margin="0,10,0,0" ToolTip="{Binding TrafficDetail}"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                  <StackPanel><TextBlock Text="↑ 上行" FontSize="10" Foreground="{StaticResource Accent}" /><TextBlock Text="{Binding UploadRate}" FontFamily="{StaticResource DataFont}" FontSize="13" Margin="0,3,0,0" /></StackPanel>
+                  <StackPanel Grid.Column="1"><TextBlock Text="↓ 下行" FontSize="10" Foreground="{StaticResource Success}" /><TextBlock Text="{Binding DownloadRate}" FontFamily="{StaticResource DataFont}" FontSize="13" Margin="0,3,0,0" /></StackPanel>
+                </Grid>
               </StackPanel>
             </Border>
           </DataTemplate></ItemsControl.ItemTemplate>
@@ -101,6 +105,23 @@
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal"><Button Content="导入配置" Click="Import_Click" Style="{StaticResource SmallButton}" Margin="0,0,8,0" /><Button Content="导出配置" Click="Export_Click" Style="{StaticResource SmallButton}" /></StackPanel>
           </Grid>
+        </Grid>
+      </TabItem>
+      <TabItem x:Name="TrafficTab" Header="流量监控">
+        <Grid Margin="22,18"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <StackPanel Margin="0,0,0,16"><TextBlock Text="每张网卡的上行与下行" FontSize="19" FontWeight="SemiBold" /><TextBlock Text="每秒刷新 · 未启动分流也能监控 · 统计整张网卡，包含其他应用和局域网流量。" Style="{StaticResource MutedText}" Margin="0,7,0,0" TextWrapping="Wrap" /></StackPanel>
+          <Grid Grid.Row="1" Height="34" Background="{StaticResource Base}" Margin="0,0,17,0"><Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition Width="1.3*" /></Grid.ColumnDefinitions>
+            <TextBlock Text="网卡" Margin="12,0" Style="{StaticResource MutedText}" /><TextBlock Grid.Column="1" Text="↑ 上行速率" Foreground="{StaticResource Accent}" /><TextBlock Grid.Column="2" Text="↓ 下行速率" Foreground="{StaticResource Success}" /><TextBlock Grid.Column="3" Text="本次上行" Style="{StaticResource MutedText}" /><TextBlock Grid.Column="4" Text="本次下行" Style="{StaticResource MutedText}" /><TextBlock Grid.Column="5" Text="采样状态" Style="{StaticResource MutedText}" />
+          </Grid>
+          <Grid Grid.Row="2"><ScrollViewer VerticalScrollBarVisibility="Visible"><ItemsControl x:Name="TrafficItems"><ItemsControl.ItemTemplate><DataTemplate>
+            <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="0,14" ToolTip="{Binding TrafficDetail}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /><ColumnDefinition Width="1.3*" /></Grid.ColumnDefinitions>
+              <StackPanel Margin="12,0,16,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Description}" /><TextBlock Text="{Binding AddressLabel}" FontSize="10" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis" Margin="0,5,0,0" /></StackPanel>
+              <TextBlock Grid.Column="1" Text="{Binding UploadRate}" FontFamily="{StaticResource DataFont}" Foreground="{StaticResource Accent}" /><TextBlock Grid.Column="2" Text="{Binding DownloadRate}" FontFamily="{StaticResource DataFont}" Foreground="{StaticResource Success}" /><TextBlock Grid.Column="3" Text="{Binding Uploaded}" FontFamily="{StaticResource DataFont}" /><TextBlock Grid.Column="4" Text="{Binding Downloaded}" FontFamily="{StaticResource DataFont}" /><TextBlock Grid.Column="5" Text="{Binding MonitorStatus}" FontSize="11" Foreground="{StaticResource Muted}" />
+            </Grid></Border>
+          </DataTemplate></ItemsControl.ItemTemplate></ItemsControl></ScrollViewer>
+            <TextBlock x:Name="TrafficEmpty" Text="暂未发现可监控的网卡。请连接网卡后刷新。" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Visibility="Collapsed" />
+          </Grid>
+          <TextBlock Grid.Row="3" Text="累计量从本次打开软件后开始采样，不含启动前的流量。网卡计数重置、重新连接或系统休眠恢复后，会重新建立速率基线。不同虚拟网卡与物理网卡可能记录同一份流量。" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" LineHeight="21" Margin="0,14,0,0" />
         </Grid>
       </TabItem>
       <TabItem Header="网络检测">

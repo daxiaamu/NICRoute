@@ -13,6 +13,11 @@ public partial class MainWindow : Window
     private readonly SettingsStore store;
     private readonly EngineController engine;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private readonly DispatcherTimer trafficTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
+    private readonly AdapterTrafficMonitor trafficMonitor = new();
+    private readonly System.Collections.ObjectModel.ObservableCollection<AdapterCard> adapterCards = [];
+    private bool trafficPolling;
+    private Task trafficPoll = Task.CompletedTask;
     private readonly Queue<string> logs = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> pendingLogs = new();
     private readonly DispatcherTimer logTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
@@ -39,6 +44,7 @@ public partial class MainWindow : Window
         store = new(preview ? Path.Combine(AppContext.BaseDirectory, "preview-data") : dataDirectory);
         engine = new(Path.Combine(AppContext.BaseDirectory, "engine", "sing-box.exe"), Path.Combine(store.DirectoryPath, "runtime"));
         InitializeComponent();
+        AdapterItems.ItemsSource = TrafficItems.ItemsSource = adapterCards;
         if (!preview)
         {
             try { settings = store.Load(); }
@@ -65,13 +71,55 @@ public partial class MainWindow : Window
         InitializeUpdates();
         timer.Tick += async (_, _) => await PollAdaptersAsync();
         logTimer.Tick += (_, _) => FlushLogs();
+        trafficTimer.Tick += (_, _) => QueueTrafficPoll();
         if (!preview)
         {
             SetupTray();
             timer.Start();
             logTimer.Start();
+            trafficTimer.Start();
+            Loaded += (_, _) => QueueTrafficPoll();
         }
         else NoticeText.Text = "界面预览 · 示例应用规则，不启动分流、不保存配置。";
+    }
+
+    private void SyncAdapterCards()
+    {
+        var ids = adapters.Select(a => a.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var card in adapterCards.Where(c => !ids.Contains(c.Id)).ToArray()) adapterCards.Remove(card);
+        for (var index = 0; index < adapters.Count; index++)
+        {
+            var adapter = adapters[index];
+            var card = adapterCards.FirstOrDefault(c => c.Id.Equals(adapter.Id, StringComparison.OrdinalIgnoreCase));
+            if (card is null) { card = new(adapter); adapterCards.Insert(index, card); }
+            else { card.UpdateInfo(adapter); if (adapterCards.IndexOf(card) != index) adapterCards.Move(adapterCards.IndexOf(card), index); }
+        }
+        TrafficEmpty.Visibility = adapterCards.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private void QueueTrafficPoll()
+    {
+        if (closing || trafficPolling) return;
+        trafficPoll = PollTrafficAsync();
+    }
+    private async Task PollTrafficAsync()
+    {
+        trafficPolling = true;
+        try
+        {
+            var snapshot = adapters.ToArray();
+            var readings = await Task.Run(() => trafficMonitor.Sample(snapshot));
+            if (closing) return;
+            foreach (var card in adapterCards)
+                if (readings.TryGetValue(card.Id, out var reading)) card.UpdateTraffic(reading);
+        }
+        catch (Exception error) when (error is System.Net.NetworkInformation.NetworkInformationException or InvalidOperationException or NotSupportedException)
+        { if (!closing) AddLog("流量监控：" + error.Message); }
+        finally { trafficPolling = false; }
+    }
+    internal async Task PrimeTrafficPreviewAsync()
+    {
+        if (!preview) throw new InvalidOperationException("仅用于预览采样。");
+        await PollTrafficAsync(); await Task.Delay(1100); await PollTrafficAsync();
     }
 
     private void InitializeUpdates()
@@ -215,7 +263,7 @@ public partial class MainWindow : Window
         ProbeAddress.Text = settings.ProbeAddress;
         ProbePort.Text = settings.ProbePort.ToString();
         DnsAddress.Text = settings.DnsServer;
-        AdapterItems.ItemsSource = adapters;
+        SyncAdapterCards();
         AdapterSummary.Text = $"{adapters.Count(a => a.Available)} 张可用 / {adapters.Count} 张网卡 · 每 5 秒检测变化，首选网卡恢复后自动切回";
         loading = wasLoading;
     }
@@ -468,7 +516,7 @@ public partial class MainWindow : Window
             loading = true;
             var draftId = settings.GlobalAdapterId;
             GlobalAdapter.ItemsSource = Options(true); GlobalAdapter.SelectedValue = draftId;
-            AdapterItems.ItemsSource = adapters;
+            SyncAdapterCards();
             AdapterSummary.Text = $"{adapters.Count(a => a.Available)} 张可用 / {adapters.Count} 张网卡 · 每 5 秒检测变化，首选网卡恢复后自动切回";
             loading = false;
             RefreshRows();
@@ -523,9 +571,9 @@ public partial class MainWindow : Window
                 catch (Exception error) { ShowError(error.Message); return; }
             }
         }
-        closing = true; timer.Stop(); logTimer.Stop(); updateLifetime.Cancel();
+        closing = true; timer.Stop(); logTimer.Stop(); trafficTimer.Stop(); updateLifetime.Cancel();
         IsEnabled = false;
-        try { if(updates is not null) await updates.DrainAsync(); await engine.DisposeAsync(); }
+        try { await trafficPoll; if(updates is not null) await updates.DrainAsync(); await engine.DisposeAsync(); }
         finally { updateHttp?.Dispose(); tray?.Dispose(); _ = Dispatcher.BeginInvoke(Close); }
     }
 }

@@ -6,7 +6,7 @@ on:
       tag:
         description: Release tag
         required: true
-        default: v0.2.1
+        default: v0.2.2
       source_commit:
         description: Full commit SHA to build and tag
         required: true
@@ -55,7 +55,7 @@ jobs:
         working-directory: build
         run: |
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          dotnet run --project tests/NICRoute.Tests -c Release --no-build -- --engine "$PWD/engine/sing-box.exe" --integration
+          dotnet run --project tests/NICRoute.Tests -c Release --no-build -- --engine "$PWD/engine/sing-box.exe" --integration --traffic
           if ($LASTEXITCODE -ne 0) { throw 'Engine integration tests failed.' }
       - name: Verify updater restart and rollback in isolated fixtures
         shell: pwsh
@@ -75,7 +75,7 @@ jobs:
         working-directory: build
         run: |
           $preview = Join-Path $PWD 'artifacts/published-preview.png'
-          $app = Start-Process -FilePath './dist/NICRoute-win-x64/NICRoute.exe' -ArgumentList @('--preview', $preview, '--verify-rules') -WindowStyle Hidden -PassThru
+          $app = Start-Process -FilePath './dist/NICRoute-win-x64/NICRoute.exe' -ArgumentList @('--preview', $preview, '--verify-rules', '--verify-traffic') -WindowStyle Hidden -PassThru
           if (-not $app.WaitForExit(30000)) { $app.Kill(); throw 'Published application startup timed out.' }
           if ($app.ExitCode -ne 0 -or -not (Test-Path $preview)) { throw 'Published application startup failed.' }
           if (Test-Path ($preview + '.checks.txt')) { Get-Content ($preview + '.checks.txt') }

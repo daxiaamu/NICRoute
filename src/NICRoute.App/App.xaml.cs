@@ -69,8 +69,12 @@ public partial class App : System.Windows.Application
         }
         if (previewIndex >= 0 && previewIndex + 1 < e.Args.Length)
         {
+            await window.PrimeTrafficPreviewAsync();
+            if(e.Args.Contains("--traffic-tab")) window.TrafficTab.IsSelected=true;
             if(e.Args.Contains("--verify-rules"))
                 File.WriteAllText(e.Args[previewIndex + 1] + ".checks.txt", window.VerifyRuleManagementPreview());
+            if(e.Args.Contains("--verify-traffic"))
+                File.AppendAllText(e.Args[previewIndex + 1] + ".checks.txt", Environment.NewLine + window.VerifyTrafficPreview());
             Window rendered = window;
             if(e.Args.Contains("--update-dialog"))
             {
