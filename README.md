@@ -96,6 +96,8 @@ WFP 建立失败会中止启动，不会静默降级。动态约束只在当前�
 
 ## 开发与构建
 
+测试机上的 Codex 接手请先阅读 **[测试与开发交接文档](docs/development-handoff.md)**，其中包含架构、准确的验证边界、可执行命令、真实双网卡验收矩阵及可直接复制的接手指令。
+
 要求 Windows x64、.NET 10 SDK、PowerShell 7。没有第三方 NuGet UI 依赖。
 
 ```powershell
