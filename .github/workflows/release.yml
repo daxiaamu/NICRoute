@@ -15,6 +15,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: nicroute-release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: windows-latest
@@ -51,6 +55,7 @@ jobs:
         shell: pwsh
         working-directory: build
         run: |
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           dotnet run --project tests/NICRoute.Tests -c Release --no-build -- --engine "$PWD/engine/sing-box.exe" --integration
           if ($LASTEXITCODE -ne 0) { throw 'Engine integration tests failed.' }
       - name: Upload verified assets and publish
