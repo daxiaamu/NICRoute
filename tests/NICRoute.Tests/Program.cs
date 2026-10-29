@@ -72,6 +72,26 @@ Assert(sourceBoundOutbound["inet4_bind_address"]?.GetValue<string>() == "192.0.2
     "NIC outbound binds its first IPv4 source address");
 Assert(sourceBoundOutbound["inet6_bind_address"]?.GetValue<string>() == "2001:db8::9",
     "NIC outbound binds its first IPv6 source address");
+var sourceBinding = AdapterSourceBinding.Capture(dualStackAdapter);
+Assert(sourceBinding.IPv4 == "192.0.2.9" && sourceBinding.IPv6 == "2001:db8::9",
+    "adapter source binding captures the configured first addresses");
+Assert(sourceBinding.Matches(dualStackAdapter), "unchanged adapter addresses keep the startup binding valid");
+Assert(!sourceBinding.Matches(dualStackAdapter with { Addresses = ["192.0.2.10", "2001:db8::9"] }),
+    "changed adapter address requires re-applying configuration");
+var configuredSources = new Dictionary<string, AdapterSourceBinding> { [sourceBinding.Tag] = sourceBinding };
+Assert(AdapterSourceBinding.StabilizeTarget(dualStackAdapter.Tag, [dualStackAdapter], configuredSources, out var unchangedReason) ==
+    dualStackAdapter.Tag && unchangedReason is null, "runtime selector can keep an unchanged engine binding");
+var changedAdapter = dualStackAdapter with { Addresses = ["192.0.2.10", "2001:db8::9"] };
+Assert(AdapterSourceBinding.StabilizeTarget(dualStackAdapter.Tag, [changedAdapter], configuredSources, out var changedReason) ==
+    RuleResolver.BlockTag && changedReason == "Dual", "runtime address change blocks before selector switch");
+var emptyAdapter = dualStackAdapter with { Addresses = [] };
+var emptyBinding = AdapterSourceBinding.Capture(emptyAdapter);
+Assert(AdapterSourceBinding.StabilizeTarget(emptyAdapter.Tag, [dualStackAdapter],
+    new Dictionary<string, AdapterSourceBinding> { [emptyBinding.Tag] = emptyBinding }, out _) == RuleResolver.BlockTag,
+    "an address appearing after startup requires re-applying configuration");
+Rejects(() => AdapterSourceBinding.ValidateUnique(
+    [AdapterSourceBinding.Capture(a), AdapterSourceBinding.Capture(a with { Id = "c", Name = "Other", Index = 4 })]),
+    "duplicate local address across interfaces is rejected");
 Assert(config["outbounds"]!.AsArray().Where(o => o!["type"]!.GetValue<string>() == "selector").All(o => o!["interrupt_exist_connections"]!.GetValue<bool>()), "switch closes existing connections");
 
 var temp = Path.Combine(Path.GetTempPath(), "NICRoute-tests-" + Guid.NewGuid().ToString("N"));

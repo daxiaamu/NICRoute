@@ -9,8 +9,9 @@ using Microsoft.Win32.SafeHandles;
 namespace NICRoute.Core;
 
 /// <summary>Dynamic WFP ALE filters prevent configured apps bypassing the TUN through
-/// Windows routes or explicit physical-interface binds. The forwarding engine itself
-/// remains separately bound to each selected outbound interface. No Internet probes.</summary>
+/// Windows routes or explicit physical-interface binds. Engine sockets are also guarded:
+/// when a source address belongs to one adapter, its next-hop interface must match that
+/// adapter. No Internet probes or route-metric changes are used.</summary>
 public sealed class ApplicationNetworkGuard : IDisposable
 {
     private static readonly Guid V4 = new("c38d57d1-05a7-4c33-904f-7fbceee60e82"), V6 = new("4a72393b-319f-44bc-84c3-ba54dcb3b6b4");

@@ -55,9 +55,9 @@ internal static class FirewallTests
                 Check(!await Connect(), "no allowed interface is fail-closed");
             }
             Check(await Connect(), "disposing dynamic guard restores only the test application's access");
-            var physical = AdapterCatalog.GetAdapters().First(a => a.LinkUp).Name;
+            var egressPhysical = AdapterCatalog.GetAdapters().First(a => a.LinkUp).Name;
             using (var egress = new ApplicationNetworkGuard(Environment.ProcessPath!,
-                [new("127.0.0.1", physical), new("::1", physical)]))
+                [new("127.0.0.1", egressPhysical), new("::1", egressPhysical)]))
             {
                 Check(egress.FilterCount == 2, "source/interface egress guard installs for IPv4 and IPv6");
                 Check(!await Connect(), "source-bound egress cannot use another interface");

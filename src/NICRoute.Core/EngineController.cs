@@ -31,6 +31,8 @@ public sealed class EngineController : IAsyncDisposable
     private bool stopping;
     private TaskCompletionSource? ready;
     private Dictionary<string, string> selections = [];
+    private IReadOnlyDictionary<string, AdapterSourceBinding> configuredBindings =
+        new Dictionary<string, AdapterSourceBinding>();
     private readonly Queue<string> recent = new();
     public event Action<string>? Log;
     public event Action? UnexpectedExit;
@@ -77,16 +79,18 @@ public sealed class EngineController : IAsyncDisposable
                 if (settings.Rules.Any(r => r.Enabled && r.Application.Kind == ApplicationKind.Desktop &&
                     r.Application.ExecutablePath.Equals(enginePath, StringComparison.OrdinalIgnoreCase)))
                     throw new InvalidDataException("不能为分流引擎自身添加应用规则。");
+                var adapterBindings = adapters.Select(AdapterSourceBinding.Capture).ToArray();
+                AdapterSourceBinding.ValidateUnique(adapterBindings);
                 var targets = ApplicationNetworkGuard.Targets(settings);
-                var egressBindings = adapters
-                    .SelectMany(adapter => adapter.Addresses.Select(address =>
-                        new ApplicationNetworkGuard.EgressBinding(address, adapter.Name)))
+                var egressBindings = adapterBindings
+                    .SelectMany(binding => binding.GuardBindings())
                     .DistinctBy(binding => (binding.LocalAddress.ToLowerInvariant(), binding.InterfaceName))
                     .ToArray();
                 var guard = targets.Length > 0 || egressBindings.Length > 0
                     ? new ApplicationNetworkGuard(targets, preserveLoopback: true, enginePath, egressBindings)
                     : null;
                 networkGuard?.Dispose(); networkGuard = guard;
+                configuredBindings = adapterBindings.ToDictionary(binding => binding.Tag, StringComparer.Ordinal);
             }
             ownedProcess = new();
             ownedProcess.Start(enginePath, configPath, workDirectory, OnOutput);
@@ -144,23 +148,26 @@ public sealed class EngineController : IAsyncDisposable
             if (!IsReady || api is null) return;
             foreach (var (tag, target) in RuleResolver.Selections(settings, adapters))
             {
-                if (GetSelectedOutbound(tag) == target) continue;
+                var selected = AdapterSourceBinding.StabilizeTarget(target, adapters, configuredBindings, out var changedInterface);
+                if (changedInterface is not null)
+                    Log?.Invoke($"网卡 {changedInterface} 的接口名称或绑定地址已变化，已阻断出口；请保存并重新应用。");
+                if (GetSelectedOutbound(tag) == selected) continue;
                 try
                 {
-                    using var response = await api.PutAsJsonAsync("proxies/" + Uri.EscapeDataString(tag), new { name = target });
+                    using var response = await api.PutAsJsonAsync("proxies/" + Uri.EscapeDataString(tag), new { name = selected });
                     response.EnsureSuccessStatusCode();
                     var actual = await api.GetFromJsonAsync<JsonObject>("proxies/" + Uri.EscapeDataString(tag));
-                    if (actual?["now"]?.GetValue<string>() != target) throw new IOException("引擎没有确认指定出口。");
+                    if (actual?["now"]?.GetValue<string>() != selected) throw new IOException("引擎没有确认指定出口。");
                 }
-                catch (Exception error) when (target != RuleResolver.BlockTag && error is HttpRequestException or IOException or System.Text.Json.JsonException)
+                catch (Exception error) when (selected != RuleResolver.BlockTag && error is HttpRequestException or IOException or System.Text.Json.JsonException)
                 {
                     using var denied = await api.PutAsJsonAsync("proxies/" + Uri.EscapeDataString(tag), new { name = RuleResolver.BlockTag });
                     denied.EnsureSuccessStatusCode();
                     lock (selections) selections[tag] = RuleResolver.BlockTag;
                     throw new IOException("指定网卡出口未能生效，已将该规则阻断。请保存并重新应用。", error);
                 }
-                lock (selections) selections[tag] = target;
-                Log?.Invoke($"出口切换：{tag} → {target}（原有连接关闭，应用可重连）");
+                lock (selections) selections[tag] = selected;
+                Log?.Invoke($"出口切换：{tag} → {selected}（原有连接关闭，应用可重连）");
             }
         }
         finally { gate.Release(); }
@@ -193,6 +200,7 @@ public sealed class EngineController : IAsyncDisposable
     {
         stopping = true;
         IsReady = false;
+        configuredBindings = new Dictionary<string, AdapterSourceBinding>();
         Volatile.Write(ref enginePid, 0);
         if (applicationFeed is not null) { await applicationFeed.DisposeAsync(); applicationFeed = null; }
         ApplicationTraffic.Stop();
