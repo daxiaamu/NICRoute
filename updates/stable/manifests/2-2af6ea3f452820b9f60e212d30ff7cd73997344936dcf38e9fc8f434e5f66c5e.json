@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "appId": "NICRoute.Windows",
+  "platform": "win-x64",
+  "channel": "stable",
+  "policyRevision": 2,
+  "versionCode": 2,
+  "versionName": "0.2.0",
+  "maxForcedVersionCode": 0,
+  "publishedAt": "2026-10-29T04:31:38.0000000+00:00",
+  "changelog": "NICRoute 现在支持软件内检查和安装更新。\r\n\r\n### 软件更新\r\n- 启动后自动检查，也可在“软件更新”页手动检查；两种入口共用一次进行中的检查。\r\n- 提供稳定版和测试版渠道，以及跳过此版本、忽略、下载并重启更新。\r\n- 下载使用 **MUDL-C 0.5.14**，多个镜像共同下载一个文件，最多 **32 个连接**，支持续传和 JSON 进度。\r\n- 由 GitHub 官方更新指针决定版本和摘要；镜像经过完整文件 SHA256 检测后作为备用。\r\n- 下载后及安装前重新计算 SHA256，校验全部安装文件及程序本体的应用标识、平台和版本代码。\r\n- 独立更新程序退出旧版本后替换文件，保留网卡配置；写入失败或新版本不能正常启动时尝试回滚。\r\n- 支持持久化强制更新边界，本次策略为 **0，不强制更新**。\r\n\r\n### 安装\r\n下载 `NICRoute-win-x64.zip`，完整解压并运行 `NICRoute.exe`，无需另装 .NET。\r\n\r\n**0.1.0 尚无更新模块，需手动安装一次 0.2.0；后续版本即可在软件内更新。**\r\n\r\n更新会停止分流并重启程序。已有规则保存在 LocalAppData，不随程序文件替换。备份与更新结果保存在配置目录的 updates 子目录。\r\n\r\n更新校验以 GitHub 官方 HTTPS 指针为信任根。当前程序未配置发行方代码签名；若已安装版本具有可信 Authenticode 签名，则要求更新程序签名发布者连续。\r\n\r\n继续支持按 Windows 应用/桌面程序分流、全局默认网卡和三种回退。真实系统级 TUN 的性能及多网卡拔插仍需实机验收；本版本没有限速功能。\r\n\r\n[使用说明](https://github.com/daxiaamu/NICRoute/blob/v0.2.0/README.md) · [MUDL-C](https://github.com/daxiaamu/mudl-c)\r\n\n\n对应应用提交：2891d5ec85bc509d5452127ed03e933ffbc3dc62。",
+  "sha256": "0fff8f5b17a8a15f9e30deed552de189221d2e57ba9507d586fd5aeb37d796ea",
+  "size": 104820163,
+  "urls": [
+    "https://github.com/daxiaamu/NICRoute/releases/download/v0.2.0/NICRoute-win-x64.zip",
+    "https://gh.monlor.com/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.0/NICRoute-win-x64.zip",
+    "https://gh.llkk.cc/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.0/NICRoute-win-x64.zip",
+    "https://gh-proxy.com/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.0/NICRoute-win-x64.zip"
+  ],
+  "releaseUrl": "https://github.com/daxiaamu/NICRoute/releases/tag/v0.2.0"
+}

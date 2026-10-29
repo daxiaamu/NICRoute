@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "channel": "stable",
+  "policyRevision": 2,
+  "manifestPath": "updates/stable/manifests/2-2af6ea3f452820b9f60e212d30ff7cd73997344936dcf38e9fc8f434e5f66c5e.json",
+  "manifestSha256": "2af6ea3f452820b9f60e212d30ff7cd73997344936dcf38e9fc8f434e5f66c5e",
+  "expiresAt": "2027-10-29T04:31:38.0000000+00:00"
+}
