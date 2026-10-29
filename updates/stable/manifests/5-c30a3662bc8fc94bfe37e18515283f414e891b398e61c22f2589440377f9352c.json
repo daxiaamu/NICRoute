@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "appId": "NICRoute.Windows",
+  "platform": "win-x64",
+  "channel": "stable",
+  "policyRevision": 5,
+  "versionCode": 5,
+  "versionName": "0.2.3",
+  "maxForcedVersionCode": 0,
+  "publishedAt": "2026-10-29T15:32:21.0000000+00:00",
+  "changelog": "增加应用流量与实际网卡监控，压缩主界面，并加强受控应用的网卡约束。\r\n\r\n### 应用流量\r\n- 按应用显示 ↑/↓ 速率、累计量、连接数和连接实际出口，每秒刷新。\r\n- 使用引擎的新建、更新和关闭事件，保留短连接的最终计数；订阅重连不重复累计。\r\n- Windows 应用包内辅助进程合并统计；无单独规则的联网进程自动出现。\r\n- 同时使用多张网卡时一起显示，无活动连接时明确标为最近出口。\r\n- 系统自动 TCP 出口用 Windows socket 实际源地址确认网卡；UDP 自动出口和有歧义的结果标为待确认。\r\n\r\n### 网卡约束\r\n- 为启用的应用安装动态 WFP IPv4/IPv6 规则，阻止绕过 NICRoute 直接使用其他网卡。\r\n- 不依赖连通性探测，不默认开启探测；原有检测开关保留。\r\n- 有“不联网”规则时，无法识别进程的普通连接不再交给全局出口。\r\n- 出口切换失败时尝试阻断该规则；WFP 安装失败不会静默继续运行。\r\n- 回环通信保留。共享宿主、其他本机代理代发和无法映射到包身份的服务仍需按实际联网进程配置。\r\n- 动态限制不是持久防火墙：停止、退出或整个主程序崩溃会清理；引擎单独退出时主程序保留约束，托盘停止可解除。\r\n\r\n### 紧凑布局\r\n- 全局默认网卡、保存与启停按钮移至顶部同一行。\r\n- 网卡卡片用 ↑/↓ 配合速率，移除重复文字。\r\n- 网卡数量及刷新按钮移到底部，为配置和监控列表留出更多高度。\r\n\r\n已有用户可在软件内检查更新。应用监控只统计引擎接管的连接负载，不包含链路开销；本次为可选更新。\r\n\n\n对应应用提交：b5dad8a672a83e9eaca1f211148bffd6f980c994。",
+  "sha256": "686963b5168990f2b17b91cab909c7b3685241b6312739733dbca8de28e6b5a8",
+  "size": 104867603,
+  "urls": [
+    "https://github.com/daxiaamu/NICRoute/releases/download/v0.2.3/NICRoute-win-x64.zip",
+    "https://gh.monlor.com/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.3/NICRoute-win-x64.zip",
+    "https://gh-proxy.com/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.3/NICRoute-win-x64.zip",
+    "https://ghfast.top/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.3/NICRoute-win-x64.zip"
+  ],
+  "releaseUrl": "https://github.com/daxiaamu/NICRoute/releases/tag/v0.2.3"
+}
