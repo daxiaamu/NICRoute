@@ -6,9 +6,9 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>NICRoute</AssemblyName>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Product>NICRoute</Product>
-    <AppVersionCode>2</AppVersionCode>
+    <AppVersionCode>3</AppVersionCode>
     <RuntimeFrameworkVersion Condition="'$(SelfContained)' == 'true'">10.0.14</RuntimeFrameworkVersion>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <!-- This is a WPF application. Forms is used only for NotifyIcon; WPF's DPI

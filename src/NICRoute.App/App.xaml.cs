@@ -69,6 +69,8 @@ public partial class App : System.Windows.Application
         }
         if (previewIndex >= 0 && previewIndex + 1 < e.Args.Length)
         {
+            if(e.Args.Contains("--verify-rules"))
+                File.WriteAllText(e.Args[previewIndex + 1] + ".checks.txt", window.VerifyRuleManagementPreview());
             Window rendered = window;
             if(e.Args.Contains("--update-dialog"))
             {

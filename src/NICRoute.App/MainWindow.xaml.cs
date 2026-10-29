@@ -6,7 +6,7 @@ namespace NICRoute.App;
 
 public sealed record AdapterOption(string Id, string Label);
 public sealed record RuleRow(AppRule Rule, string Name, string Detail, string KindLabel, string Glyph,
-    string Primary, string Fallback, string Route, Brush RouteBrush, string EnabledLabel, string ToggleLabel);
+    string Primary, string Fallback, string Route, Brush RouteBrush, string EnabledLabel, string ToggleLabel, bool IsSelected);
 
 public partial class MainWindow : Window
 {
@@ -17,6 +17,7 @@ public partial class MainWindow : Window
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> pendingLogs = new();
     private readonly DispatcherTimer logTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly Dictionary<string, int> probeFailures = [];
+    private readonly HashSet<Guid> selectedRuleIds = [];
     private readonly bool preview;
     private AppSettings settings = new();
     private AppSettings activeSettings = new();
@@ -187,7 +188,7 @@ public partial class MainWindow : Window
     private void SetupTray()
     {
         var menu = new System.Windows.Forms.ContextMenuStrip();
-        menu.Items.Add("打开 NICRoute", null, (_, _) => Dispatcher.Invoke(ShowWindow));
+        menu.Items.Add("管理已配置应用", null, (_, _) => Dispatcher.Invoke(() => { ShowWindow(); ConfiguredAppsTab.IsSelected = true; }));
         menu.Items.Add("停止分流", null, async (_, _) => await Dispatcher.InvokeAsync(StopRoutingAsync).Task.Unwrap());
         menu.Items.Add("退出", null, (_, _) => Dispatcher.Invoke(Close));
         tray = new() { Text = "NICRoute · 尚未启动", Visible = true, ContextMenuStrip = menu,
@@ -223,8 +224,14 @@ public partial class MainWindow : Window
     {
         if (RuleItems is null) return;
         var search = RuleSearch.Text?.Trim() ?? "";
-        var matching = settings.Rules.Where(r => r.Application.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-            r.Application.Detail.Contains(search, StringComparison.OrdinalIgnoreCase)).ToArray();
+        var kind = RuleKindFilter.SelectedValue as string ?? "all";
+        var state = RuleStateFilter.SelectedValue as string ?? "all";
+        var matching = settings.Rules.Where(r =>
+            (r.Application.Name.Contains(search, StringComparison.OrdinalIgnoreCase) || r.Application.Detail.Contains(search, StringComparison.OrdinalIgnoreCase)) &&
+            (kind == "all" || (kind == "package") == (r.Application.Kind == ApplicationKind.WindowsPackage)) &&
+            (state == "all" || (state == "enabled") == r.Enabled)).ToArray();
+        // Batch actions always apply to the visible selection, including after a filter or import.
+        selectedRuleIds.IntersectWith(matching.Select(r => r.Id));
         RuleItems.ItemsSource = matching.Select(rule =>
         {
             var route = RuleResolver.Resolve(rule, settings, adapters);
@@ -235,14 +242,65 @@ public partial class MainWindow : Window
                 rule.Application.Kind == ApplicationKind.WindowsPackage ? "\uE782" : "\uE7F4", AdapterName(rule.AdapterId), fallback,
                 routePending ? "出口待更新 · 请重新应用" : route.Label,
                 (Brush)FindResource(routePending ? "Warning" : route.IsBlocked ? "Danger" : route.IsFallback ? "Warning" : "Success"),
-                rule.Enabled ? "已启用" : "已停用", rule.Enabled ? "停用" : "启用");
+                rule.Enabled ? "已启用" : "已停用 · 跟随全局", rule.Enabled ? "停用" : "启用", selectedRuleIds.Contains(rule.Id));
         }).ToArray();
         EmptyState.Visibility = matching.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyTitle.Text = settings.Rules.Count == 0 ? "还没有应用规则" : "没有匹配的应用";
-        EmptyDetail.Text = settings.Rules.Count == 0 ? "添加一个 Windows 应用或桌面程序，为它指定网卡和回退方式。" : "试试其他名称、程序路径或应用包名。";
-        RuleCount.Text = $"{settings.Rules.Count} 条规则 · {settings.Rules.Count(r => r.Enabled)} 条已启用";
+        EmptyDetail.Text = settings.Rules.Count == 0 ? "点击“添加应用”，已有的应用规则会统一显示在这里。" : "试试其他名称、程序路径或应用包名，也可以重置类型和状态筛选。";
+        RuleSummary.Text = $"共 {settings.Rules.Count} 个应用 · {settings.Rules.Count(r => r.Enabled)} 个已启用 · " +
+            (dirty ? "有修改待保存并应用" : "在这里统一管理首选网卡和回退规则");
+        RuleCount.Text = $"显示 {matching.Length} / {settings.Rules.Count} 个应用";
         RouteColumnTitle.Text = engine.IsReady && !dirty ? "当前出口" : "规则出口预览";
         SaveButton.Content = dirty ? "保存并应用 *" : "保存并应用";
+        RefreshSelectionControls();
+    }
+    private void RefreshSelectionControls()
+    {
+        if (RuleBatchActions is null) return;
+        var visible = (RuleItems.ItemsSource as IEnumerable<RuleRow>)?.Count() ?? 0;
+        SelectVisibleRules.IsEnabled = visible > 0;
+        SelectVisibleRules.IsChecked = selectedRuleIds.Count == 0 ? false : selectedRuleIds.Count == visible ? true : null;
+        RuleBatchActions.Visibility = selectedRuleIds.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        RuleCount.Visibility = selectedRuleIds.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RuleSelectionCount.Text = $"已选择 {selectedRuleIds.Count} 项";
+    }
+    private void SelectRule_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { Tag: Guid id } box) return;
+        if (box.IsChecked == true) selectedRuleIds.Add(id); else selectedRuleIds.Remove(id);
+        RefreshSelectionControls();
+    }
+    private void SelectVisibleRules_Click(object sender, RoutedEventArgs e)
+    {
+        var visible = (RuleItems.ItemsSource as IEnumerable<RuleRow>)?.Select(r => r.Rule.Id).ToArray() ?? [];
+        var allSelected = visible.Length > 0 && visible.All(selectedRuleIds.Contains);
+        selectedRuleIds.Clear();
+        if (!allSelected) selectedRuleIds.UnionWith(visible);
+        RefreshRows();
+    }
+    private void ClearRuleSelection_Click(object sender, RoutedEventArgs e) { selectedRuleIds.Clear(); RefreshRows(); }
+    private void RuleFilter_Changed(object sender, SelectionChangedEventArgs e) => RefreshRows();
+    private void ResetRuleFilters_Click(object sender, RoutedEventArgs e)
+    {
+        RuleSearch.Clear(); RuleKindFilter.SelectedValue = "all"; RuleStateFilter.SelectedValue = "all";
+        RefreshRows();
+    }
+    private bool ConfirmRuleRemoval(IReadOnlyList<AppRule> rules) => System.Windows.MessageBox.Show(this,
+        (rules.Count == 1 ? $"删除“{rules[0].Application.Name}”的应用规则？" : $"删除所选 {rules.Count} 个应用的规则？") +
+        "\n保存并应用后，这些应用将跟随全局默认网卡。应用本身不会被卸载。", "删除应用规则", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+    private void BatchRules_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = settings.Rules.Where(r => selectedRuleIds.Contains(r.Id)).ToArray();
+        if (selected.Length == 0 || sender is not Button { Tag: string action }) return;
+        if (action == "delete")
+        {
+            if (!ConfirmRuleRemoval(selected)) return;
+            settings.Rules.RemoveAll(r => selectedRuleIds.Contains(r.Id)); selectedRuleIds.Clear();
+        }
+        else if (action is "enable" or "disable")
+            foreach (var rule in selected) rule.Enabled = action == "enable";
+        else return;
+        MarkDirty();
     }
     private void MarkDirty()
     {
@@ -261,21 +319,36 @@ public partial class MainWindow : Window
     {
         var dialog = new RuleEditor(adapters) { Owner = this };
         if (dialog.ShowDialog() != true) return;
-        if (settings.Rules.Any(r => r.Application.Identity == dialog.Result.Application.Identity))
+        if (settings.Rules.Any(r => r.Application.Identity.Equals(dialog.Result.Application.Identity, StringComparison.OrdinalIgnoreCase)))
         { ShowError("该应用已有规则，请直接编辑现有规则。"); return; }
-        settings.Rules.Add(dialog.Result); MarkDirty();
+        settings.Rules.Add(dialog.Result); RevealConfiguredRule(dialog.Result); MarkDirty();
     }
     private void Edit_Click(object sender, RoutedEventArgs e)
     {
         if (((Button)sender).Tag is not AppRule rule) return;
         var dialog = new RuleEditor(adapters, rule) { Owner = this };
         if (dialog.ShowDialog() != true) return;
-        settings.Rules[settings.Rules.IndexOf(rule)] = dialog.Result; MarkDirty();
+        if (settings.Rules.Any(r => r.Id != rule.Id && r.Application.Identity.Equals(dialog.Result.Application.Identity, StringComparison.OrdinalIgnoreCase)))
+        { ShowError("该应用已有规则，请直接编辑现有规则。"); return; }
+        settings.Rules[settings.Rules.IndexOf(rule)] = dialog.Result; RevealConfiguredRule(dialog.Result); MarkDirty();
+    }
+    private void RevealConfiguredRule(AppRule rule)
+    {
+        ConfiguredAppsTab.IsSelected = true;
+        ResetRuleFilters_Click(this, new RoutedEventArgs());
+        selectedRuleIds.Clear(); selectedRuleIds.Add(rule.Id);
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            if (closing) return;
+            RuleItems.UpdateLayout();
+            var row = (RuleItems.ItemsSource as IEnumerable<RuleRow>)?.FirstOrDefault(r => r.Rule.Id == rule.Id);
+            if (row is not null && RuleItems.ItemContainerGenerator.ContainerFromItem(row) is FrameworkElement element) element.BringIntoView();
+        }, DispatcherPriority.Loaded);
     }
     private void ToggleRule_Click(object sender, RoutedEventArgs e)
     { if (((Button)sender).Tag is AppRule rule) { rule.Enabled = !rule.Enabled; MarkDirty(); } }
     private void Delete_Click(object sender, RoutedEventArgs e)
-    { if (((Button)sender).Tag is AppRule rule) { settings.Rules.Remove(rule); MarkDirty(); } }
+    { if (((Button)sender).Tag is AppRule rule && ConfirmRuleRemoval([rule])) { settings.Rules.Remove(rule); MarkDirty(); } }
 
     private void ReadNetworkOptions()
     {

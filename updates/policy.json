@@ -1,8 +1,8 @@
 {
   "stable": {
-    "policyRevision": 2,
+    "policyRevision": 3,
     "maxForcedVersionCode": 0,
-    "reason": "首次启用 Windows 自更新；不强制现有版本更新。"
+    "reason": "发布已配置应用集中管理；保留可选更新，不强制现有版本。"
   },
   "beta": {
     "policyRevision": 2,

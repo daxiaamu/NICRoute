@@ -42,24 +42,36 @@
       </Border>
     </StackPanel>
     <TabControl Grid.Row="3" x:Name="MainTabs">
-      <TabItem Header="应用分流">
-        <Grid Margin="18,16"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-          <Grid Margin="0,0,0,15"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="235" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <StackPanel><TextBlock Text="应用规则" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="Windows 应用与桌面程序均可单独设置。" Style="{StaticResource MutedText}" Margin="0,4,0,0" /></StackPanel>
-            <TextBox x:Name="RuleSearch" Grid.Column="1" ToolTip="搜索应用名称或路径" TextChanged="RuleSearch_Changed" VerticalAlignment="Center" AutomationProperties.Name="搜索应用规则" />
-            <Button Grid.Column="2" Content="＋ 添加应用" Style="{StaticResource PrimaryButton}" Click="Add_Click" Margin="12,0,0,0" VerticalAlignment="Center" />
+      <TabItem x:Name="ConfiguredAppsTab" Header="已配置应用">
+        <Grid Margin="18,16"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel><TextBlock Text="已配置应用" FontSize="17" FontWeight="SemiBold" /><TextBlock x:Name="RuleSummary" Style="{StaticResource MutedText}" Margin="0,4,0,0" /></StackPanel>
+            <Button Grid.Column="1" Content="＋ 添加应用" Style="{StaticResource PrimaryButton}" Click="Add_Click" Margin="12,0,0,0" VerticalAlignment="Center" />
           </Grid>
-          <Grid Grid.Row="1" Background="{StaticResource Base}" Height="32"><Grid.ColumnDefinitions><ColumnDefinition Width="2.1*" /><ColumnDefinition Width="1.05*" /><ColumnDefinition Width="1.05*" /><ColumnDefinition Width="1.25*" /><ColumnDefinition Width="164" /></Grid.ColumnDefinitions>
+          <Grid Grid.Row="1" Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="155" /><ColumnDefinition Width="140" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Grid><TextBox x:Name="RuleSearch" ToolTip="搜索应用名称、exe 路径或应用包名" TextChanged="RuleSearch_Changed" AutomationProperties.Name="搜索已配置应用" />
+              <TextBlock Text="搜索名称、路径或应用包名" Margin="12,0" IsHitTestVisible="False" Foreground="{StaticResource Muted}"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=RuleSearch}" Value=""><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+            </Grid>
+            <ComboBox x:Name="RuleKindFilter" Grid.Column="1" Margin="10,0,0,0" SelectedIndex="0" SelectedValuePath="Tag" SelectionChanged="RuleFilter_Changed" AutomationProperties.Name="应用类型筛选"><ComboBoxItem Content="全部应用类型" Tag="all" /><ComboBoxItem Content="Windows 应用" Tag="package" /><ComboBoxItem Content="桌面程序" Tag="desktop" /></ComboBox>
+            <ComboBox x:Name="RuleStateFilter" Grid.Column="2" Margin="10,0,0,0" SelectedIndex="0" SelectedValuePath="Tag" SelectionChanged="RuleFilter_Changed" AutomationProperties.Name="启用状态筛选"><ComboBoxItem Content="全部状态" Tag="all" /><ComboBoxItem Content="已启用" Tag="enabled" /><ComboBoxItem Content="已停用" Tag="disabled" /></ComboBox>
+            <Button Grid.Column="3" Content="重置筛选" Click="ResetRuleFilters_Click" Style="{StaticResource SmallButton}" Margin="10,0,0,0" />
+          </Grid>
+          <Grid Grid.Row="2" Background="{StaticResource Base}" Height="32"><Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <CheckBox x:Name="SelectVisibleRules" Margin="10,0,0,0" Click="SelectVisibleRules_Click" AutomationProperties.Name="选择当前列表中的全部应用" ToolTip="选择当前列表中的全部应用" />
+            <Grid Grid.Column="1"><Grid.ColumnDefinitions><ColumnDefinition Width="2.1*" /><ColumnDefinition Width="1.05*" /><ColumnDefinition Width="1.05*" /><ColumnDefinition Width="1.25*" /><ColumnDefinition Width="164" /></Grid.ColumnDefinitions>
             <TextBlock Text="应用" Margin="12,0" Style="{StaticResource MutedText}" /><TextBlock Grid.Column="1" Text="首选网卡" Style="{StaticResource MutedText}" /><TextBlock Grid.Column="2" Text="不可用时" Style="{StaticResource MutedText}" /><TextBlock Grid.Column="3" x:Name="RouteColumnTitle" Text="规则出口预览" Style="{StaticResource MutedText}" /><TextBlock Grid.Column="4" Text="操作" Style="{StaticResource MutedText}" />
+            </Grid>
           </Grid>
-          <Grid Grid.Row="2">
-            <ScrollViewer VerticalScrollBarVisibility="Auto"><ItemsControl x:Name="RuleItems">
+          <Grid Grid.Row="3">
+            <ScrollViewer x:Name="RulesScrollViewer" VerticalScrollBarVisibility="Auto"><ItemsControl x:Name="RuleItems">
               <ItemsControl.ItemTemplate><DataTemplate>
                 <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="0,14">
-                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="2.1*" /><ColumnDefinition Width="1.05*" /><ColumnDefinition Width="1.05*" /><ColumnDefinition Width="1.25*" /><ColumnDefinition Width="164" /></Grid.ColumnDefinitions>
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition /></Grid.ColumnDefinitions>
+                    <CheckBox IsChecked="{Binding IsSelected, Mode=OneWay}" Tag="{Binding Rule.Id}" Click="SelectRule_Click" Margin="10,0,0,0" VerticalAlignment="Center" AutomationProperties.Name="{Binding Name, StringFormat=选择 {0}}" />
+                    <Grid Grid.Column="1"><Grid.ColumnDefinitions><ColumnDefinition Width="2.1*" /><ColumnDefinition Width="1.05*" /><ColumnDefinition Width="1.05*" /><ColumnDefinition Width="1.25*" /><ColumnDefinition Width="164" /></Grid.ColumnDefinitions>
                     <Grid Margin="10,0,14,0"><Grid.ColumnDefinitions><ColumnDefinition Width="37" /><ColumnDefinition /></Grid.ColumnDefinitions>
                       <Border Background="{StaticResource AccentSoft}" Width="29" Height="32" CornerRadius="4" HorizontalAlignment="Left"><TextBlock Text="{Binding Glyph}" Foreground="{StaticResource Accent}" FontFamily="Segoe MDL2 Assets" FontSize="15" HorizontalAlignment="Center" /></Border>
-                      <StackPanel Grid.Column="1"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" /><TextBlock Text="{Binding KindLabel}" Style="{StaticResource MutedText}" FontSize="10" Margin="0,4,0,0" /></StackPanel>
+                      <StackPanel Grid.Column="1"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" /><TextBlock Text="{Binding KindLabel}" Style="{StaticResource MutedText}" FontSize="10" Margin="0,4,0,0" /><TextBlock Text="{Binding Detail}" Style="{StaticResource MutedText}" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" /></StackPanel>
                     </Grid>
                     <TextBlock Grid.Column="1" Text="{Binding Primary}" Margin="0,0,8,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Primary}" />
                     <TextBlock Grid.Column="2" Text="{Binding Fallback}" Margin="0,0,8,0" FontSize="12" TextWrapping="Wrap" />
@@ -67,8 +79,9 @@
                     <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
                       <Button Content="编辑" Tag="{Binding Rule}" Click="Edit_Click" Style="{StaticResource SmallButton}" Padding="8,5" />
                       <Button Content="{Binding ToggleLabel}" Tag="{Binding Rule}" Click="ToggleRule_Click" Style="{StaticResource SmallButton}" Margin="5,0" Padding="8,5" />
-                      <Button Content="×" Tag="{Binding Rule}" Click="Delete_Click" Style="{StaticResource SmallButton}" Foreground="{StaticResource Danger}" Padding="9,5" ToolTip="删除规则" AutomationProperties.Name="删除规则" />
+                      <Button Content="删除" Tag="{Binding Rule}" Click="Delete_Click" Style="{StaticResource SmallButton}" Foreground="{StaticResource Danger}" Padding="8,5" ToolTip="删除规则" AutomationProperties.Name="删除规则" />
                     </StackPanel>
+                    </Grid>
                   </Grid>
                 </Border>
               </DataTemplate></ItemsControl.ItemTemplate>
@@ -77,9 +90,16 @@
               <TextBlock x:Name="EmptyTitle" Text="还没有应用规则" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" /><TextBlock x:Name="EmptyDetail" Text="添加一个 Windows 应用或桌面程序，为它指定网卡和回退方式。" Style="{StaticResource MutedText}" Margin="0,10,0,0" TextWrapping="Wrap" TextAlignment="Center" />
             </StackPanel>
           </Grid>
-          <Grid Grid.Row="3" Margin="0,13,0,0"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+          <Grid Grid.Row="4" Margin="0,13,0,0"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <TextBlock x:Name="RuleCount" Style="{StaticResource MutedText}" />
-            <Button Grid.Column="1" Content="导入配置" Click="Import_Click" Style="{StaticResource SmallButton}" Margin="0,0,8,0" /><Button Grid.Column="2" Content="导出配置" Click="Export_Click" Style="{StaticResource SmallButton}" />
+            <StackPanel x:Name="RuleBatchActions" Orientation="Horizontal" Visibility="Collapsed">
+              <TextBlock x:Name="RuleSelectionCount" Foreground="{StaticResource Accent}" Margin="0,0,12,0" />
+              <Button Content="启用" Tag="enable" Click="BatchRules_Click" Style="{StaticResource SmallButton}" Margin="0,0,6,0" />
+              <Button Content="停用" Tag="disable" Click="BatchRules_Click" Style="{StaticResource SmallButton}" Margin="0,0,6,0" />
+              <Button Content="删除" Tag="delete" Click="BatchRules_Click" Style="{StaticResource SmallButton}" Foreground="{StaticResource Danger}" Margin="0,0,6,0" />
+              <Button Content="取消选择" Click="ClearRuleSelection_Click" Style="{StaticResource SmallButton}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal"><Button Content="导入配置" Click="Import_Click" Style="{StaticResource SmallButton}" Margin="0,0,8,0" /><Button Content="导出配置" Click="Export_Click" Style="{StaticResource SmallButton}" /></StackPanel>
           </Grid>
         </Grid>
       </TabItem>
