@@ -1,0 +1,4 @@
+<Solution>
+  <Folder Name="/src/"><Project Path="src/NICRoute.Core/NICRoute.Core.csproj" /><Project Path="src/NICRoute.App/NICRoute.App.csproj" /></Folder>
+  <Folder Name="/tests/"><Project Path="tests/NICRoute.Tests/NICRoute.Tests.csproj" /></Folder>
+</Solution>

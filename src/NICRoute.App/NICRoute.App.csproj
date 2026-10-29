@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>NICRoute</AssemblyName>
+    <Version>0.1.0</Version>
+    <RuntimeFrameworkVersion Condition="'$(SelfContained)' == 'true'">10.0.14</RuntimeFrameworkVersion>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <!-- This is a WPF application. Forms is used only for NotifyIcon; WPF's DPI
+         awareness must be set in the manifest, without Forms.Application.Run. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\NICRoute.Core\NICRoute.Core.csproj" />
+    <Content Include="..\..\engine\**\*" Link="engine\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(SelfContained)' == 'true'">
+    <Content Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.win-x64\10.0.14\LICENSE.TXT" Link="licenses\NET-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.win-x64\10.0.14\THIRD-PARTY-NOTICES.TXT" Link="licenses\NET-THIRD-PARTY-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)microsoft.windowsdesktop.app.runtime.win-x64\10.0.14\LICENSE" Link="licenses\WindowsDesktop-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

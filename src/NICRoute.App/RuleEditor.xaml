@@ -1,0 +1,31 @@
+<Window x:Class="NICRoute.App.RuleEditor" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="添加应用规则" Width="800" Height="780" MinWidth="740" MinHeight="680" WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <Grid Margin="26"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <StackPanel Margin="0,0,0,18"><TextBlock Text="为应用指定网络" FontSize="23" FontWeight="SemiBold" /><TextBlock Text="先选择应用，再设置首选网卡与不可用时的处理方式。" Foreground="{StaticResource Muted}" Margin="0,8,0,0" /></StackPanel>
+    <TabControl x:Name="SourceTabs" Grid.Row="1">
+      <TabItem Header="Windows 应用"><Grid Margin="15"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBox x:Name="AppSearch" TextChanged="AppSearch_Changed" ToolTip="搜索 Windows 应用名称或应用包名" AutomationProperties.Name="搜索已安装的 Windows 应用" /><Button Grid.Column="1" Content="刷新列表" Click="Reload_Click" Margin="10,0,0,0" Style="{StaticResource SmallButton}" /></Grid>
+        <TextBlock x:Name="CatalogStatus" Grid.Row="1" Text="正在读取当前用户安装的 Windows 应用…" Foreground="{StaticResource Muted}" Margin="0,10" TextWrapping="Wrap" FontSize="11" />
+        <ListBox x:Name="AppList" Grid.Row="2" SelectionChanged="AppList_Changed" BorderBrush="{StaticResource Line}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="7,8"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding PackageFamilyName}" FontSize="10" Foreground="{StaticResource Muted}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" /></StackPanel></DataTemplate></ListBox.ItemTemplate>
+        </ListBox>
+      </Grid></TabItem>
+      <TabItem Header="桌面程序"><StackPanel Margin="20"><TextBlock Text="选择程序的 exe 文件" FontSize="16" FontWeight="SemiBold" /><TextBlock Text="按完整路径匹配，避免与其他同名程序混淆。" Foreground="{StaticResource Muted}" Margin="0,10,0,18" /><Button Content="浏览 exe 文件…" Click="Browse_Click" HorizontalAlignment="Left" /><TextBlock x:Name="ExeLabel" Text="尚未选择" TextWrapping="Wrap" Margin="0,16,0,0" Foreground="{StaticResource Muted}" /></StackPanel></TabItem>
+    </TabControl>
+    <Border Grid.Row="2" Style="{StaticResource Card}" Padding="18" Margin="0,18,0,18">
+      <StackPanel><TextBlock x:Name="SelectedLabel" Text="尚未选择应用" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" Margin="0,0,0,16" />
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="16" /><ColumnDefinition /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <TextBlock Text="首选网卡" Margin="0,0,0,7" /><TextBlock Grid.Column="2" Text="首选网卡不可用时" Margin="0,0,0,7" />
+          <ComboBox x:Name="PrimaryAdapter" Grid.Row="1" DisplayMemberPath="Label" SelectedValuePath="Id" />
+          <ComboBox x:Name="FallbackMode" Grid.Row="1" Grid.Column="2" SelectionChanged="FallbackMode_Changed" DisplayMemberPath="Label" SelectedValuePath="Kind" />
+        </Grid>
+        <ComboBox x:Name="BackupAdapter" DisplayMemberPath="Label" SelectedValuePath="Id" Margin="0,12,0,0" Visibility="Collapsed" />
+        <TextBlock Text="回退目标也不可用时不联网；首选网卡恢复后自动切回。" Style="{StaticResource MutedText}" Margin="0,12,0,0" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+    <Grid Grid.Row="3"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+      <TextBlock x:Name="ErrorText" Foreground="{StaticResource Danger}" TextWrapping="Wrap" Margin="0,0,15,0" FontSize="11" />
+      <Button Grid.Column="1" Content="取消" IsCancel="True" Margin="0,0,10,0" /><Button Grid.Column="2" Content="确定规则" IsDefault="True" Style="{StaticResource PrimaryButton}" Click="Confirm_Click" />
+    </Grid>
+  </Grid>
+</Window>
