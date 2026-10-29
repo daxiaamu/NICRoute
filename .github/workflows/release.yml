@@ -1,0 +1,60 @@
+name: Publish release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag
+        required: true
+        default: v0.1.0
+      source_commit:
+        description: Full commit SHA to build and tag
+        required: true
+        default: 10fa144edf0a64dc659cb501785b977df49efcf3
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+    steps:
+      - name: Check out release tooling
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out exact application source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          path: build
+          persist-credentials: false
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.100
+      - name: Pin SDK for this build
+        shell: pwsh
+        working-directory: build
+        run: |
+          @{ sdk = @{ version = '10.0.100'; rollForward = 'disable' } } |
+            ConvertTo-Json -Depth 3 | Set-Content global.json -Encoding utf8
+      - name: Build and package
+        shell: pwsh
+        working-directory: build
+        run: ./scripts/Build.ps1 -SelfContained
+      - name: Run actual engine integration tests without TUN
+        shell: pwsh
+        working-directory: build
+        run: |
+          dotnet run --project tests/NICRoute.Tests -c Release --no-build -- --engine "$PWD/engine/sing-box.exe" --integration
+          if ($LASTEXITCODE -ne 0) { throw 'Engine integration tests failed.' }
+      - name: Upload verified assets and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/Publish-Release.ps1 -ArtifactDirectory ./build/dist -Tag $env:RELEASE_TAG -TargetCommit $env:SOURCE_COMMIT
