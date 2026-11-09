@@ -28,9 +28,14 @@ public sealed class ApplicationNetworkGuard : IDisposable
     public int FilterCount => filters.Count;
     public sealed record Target(string Name, string Identity, bool IsPackage);
     public sealed record EgressBinding(string LocalAddress, string InterfaceName);
-    public static Target[] Targets(AppSettings settings) => settings.Rules.Where(r => r.Enabled).Select(r =>
-        new Target(r.Application.Name, r.Application.Kind == ApplicationKind.WindowsPackage ? r.Application.PackageFamilyName : r.Application.ExecutablePath,
-            r.Application.Kind == ApplicationKind.WindowsPackage)).DistinctBy(t => (t.IsPackage, t.Identity.ToLowerInvariant())).ToArray();
+    public static Target[] Targets(AppSettings settings, ApplicationProcessResolution? processResolution = null) => settings.Rules
+        .Where(rule => rule.Enabled)
+        .SelectMany(rule => rule.Application.Kind == ApplicationKind.WindowsPackage
+            ? [new Target(rule.Application.Name, rule.Application.PackageFamilyName, true)]
+            : ((processResolution?.PathsFor(rule.Application) ?? [rule.Application.ExecutablePath])
+                .Concat(processResolution?.BlockedPathsFor(rule.Application) ?? []))
+                .Select(path => new Target(rule.Application.Name, path, false)))
+        .DistinctBy(target => (target.IsPackage, target.Identity.ToLowerInvariant())).ToArray();
     public ApplicationNetworkGuard(IEnumerable<Target> targets, bool preserveLoopback = true)
         : this(targets, preserveLoopback, null, []) { }
     public ApplicationNetworkGuard(string egressIdentity, IEnumerable<EgressBinding> egressBindings)

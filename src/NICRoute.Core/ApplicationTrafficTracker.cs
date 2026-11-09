@@ -30,6 +30,7 @@ public sealed class ApplicationTrafficTracker
     private readonly Dictionary<string, Connection> connections = new(StringComparer.Ordinal);
     private readonly Queue<string> closed = new();
     private readonly Dictionary<string, Totals> processCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ApplicationTarget> resolvedDesktopPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> interfaceNames = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, string[]> observedTcp = new Dictionary<string, string[]>();
     private long observedAt;
@@ -39,12 +40,19 @@ public sealed class ApplicationTrafficTracker
     private bool running, online;
     private long lastSample;
     private static readonly Regex PackagePath = new(@"(?i)^.+\\WindowsApps\\([^\\]+)_[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+_[^\\_]+_[^\\_]*_([^\\]+)\\", RegexOptions.NonBacktracking);
-    public void Configure(AppSettings settings, IReadOnlyList<AdapterInfo> adapters)
+    public void Configure(AppSettings settings, IReadOnlyList<AdapterInfo> adapters, ApplicationProcessResolution? processResolution = null)
     {
         lock (sync)
         {
             configured = SettingsStore.Clone(settings).Rules.Select(r => r.Application).ToArray();
             processCache.Clear();
+            resolvedDesktopPaths.Clear();
+            foreach (var target in configured.Where(target => target.Kind == ApplicationKind.Desktop))
+                resolvedDesktopPaths[target.ExecutablePath] = target;
+            if (processResolution is not null)
+                foreach (var target in configured.Where(target => target.Kind == ApplicationKind.Desktop))
+                    foreach (var path in processResolution.PathsFor(target))
+                        resolvedDesktopPaths[path] = target;
             foreach (var app in apps.Values) app.Configured = false;
             foreach (var target in configured)
             {
@@ -132,6 +140,8 @@ public sealed class ApplicationTrafficTracker
     private Totals IdentifyPath(ObservedConnection connection)
     {
         var path = connection.ProcessPath;
+        if (path.Length > 0 && resolvedDesktopPaths.TryGetValue(path, out var resolved))
+            return GetApp(resolved.Identity, resolved.Name, resolved.Detail);
         foreach (var target in configured)
         {
             var matches = target.Kind == ApplicationKind.Desktop ? path.Equals(target.ExecutablePath, StringComparison.OrdinalIgnoreCase) :

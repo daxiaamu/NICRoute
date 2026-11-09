@@ -1,8 +1,8 @@
 {
   "stable": {
-    "policyRevision": 6,
+    "policyRevision": 7,
     "maxForcedVersionCode": 0,
-    "reason": "修复选定网卡仍被 Windows 默认路由带到其他网卡的问题；保持可选更新。"
+    "reason": "应用规则覆盖整个可信桌面应用族，包含辅助进程与账号客户端；保持可选更新。"
   },
   "beta": {
     "policyRevision": 2,

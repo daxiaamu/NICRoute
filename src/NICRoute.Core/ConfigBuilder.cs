@@ -7,7 +7,8 @@ public static class ConfigBuilder
 {
     public const string TunName = "NICRoute";
     public static JsonObject Build(AppSettings settings, IReadOnlyList<AdapterInfo> adapters,
-        int apiPort, string apiSecret, int rejectPort, bool useTun = true, int testPort = 0, int monitorPort = 0)
+        int apiPort, string apiSecret, int rejectPort, bool useTun = true, int testPort = 0, int monitorPort = 0,
+        ApplicationProcessResolution? processResolution = null)
     {
         settings.Validate();
         var outbounds = new JsonArray
@@ -41,13 +42,21 @@ public static class ConfigBuilder
         foreach (var selector in selections.Keys)
             dnsServers.Add(new JsonObject { ["type"] = "udp", ["tag"] = "dns-" + selector,
                 ["server"] = settings.DnsServer, ["detour"] = selector });
+        var blockedPaths = settings.Rules.Where(r => r.Enabled)
+            .SelectMany(rule => processResolution?.BlockedPathsFor(rule.Application) ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (blockedPaths.Length > 0)
+        {
+            routeRules.Add(new JsonObject { ["process_path_regex"] = Array([DesktopPathPattern(blockedPaths)]),
+                ["action"] = "route", ["outbound"] = RuleResolver.BlockTag });
+        }
         foreach (var rule in settings.Rules.Where(r => r.Enabled))
         {
-            var routeRule = Match(rule.Application);
+            var routeRule = Match(rule.Application, processResolution);
             routeRule["action"] = "route";
             routeRule["outbound"] = rule.SelectorTag;
             routeRules.Add(routeRule);
-            var dnsRule = Match(rule.Application);
+            var dnsRule = Match(rule.Application, processResolution);
             dnsRule["action"] = "route";
             dnsRule["server"] = "dns-" + rule.SelectorTag;
             dnsRules.Add(dnsRule);
@@ -80,9 +89,21 @@ public static class ConfigBuilder
         return config;
     }
 
-    private static JsonObject Match(ApplicationTarget app) => app.Kind == ApplicationKind.Desktop
-        ? new JsonObject { ["process_path_regex"] = Array(["(?i)^" + System.Text.RegularExpressions.Regex.Escape(app.ExecutablePath) + "$"]) }
+    private static JsonObject Match(ApplicationTarget app, ApplicationProcessResolution? processResolution) => app.Kind == ApplicationKind.Desktop
+        ? new JsonObject { ["process_path_regex"] = Array([DesktopPathPattern(app, processResolution)]) }
         : new JsonObject { ["process_path_regex"] = Array([app.PackagePathPattern()]) };
+    private static string DesktopPathPattern(ApplicationTarget app, ApplicationProcessResolution? processResolution)
+    {
+        var paths = processResolution?.PathsFor(app) ?? [];
+        if (paths.Count == 0 || !paths.Contains(app.ExecutablePath, StringComparer.OrdinalIgnoreCase)) paths = [.. paths, app.ExecutablePath];
+        return DesktopPathPattern(paths);
+    }
+    private static string DesktopPathPattern(IEnumerable<string> paths)
+    {
+        var alternatives = paths.Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)
+            .Select(System.Text.RegularExpressions.Regex.Escape);
+        return "(?i)^(?:" + string.Join("|", alternatives) + ")$";
+    }
     private static JsonArray Array(IEnumerable<string> values) => new(values.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray());
     public static string Serialize(JsonNode value) => value.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 }

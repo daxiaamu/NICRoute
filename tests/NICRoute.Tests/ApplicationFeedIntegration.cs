@@ -10,8 +10,12 @@ internal static class ApplicationFeedIntegration
         var adapter = AdapterCatalog.GetAdapters().First(a => a.Available && a.Addresses.Any(ip => IPAddress.Parse(ip).AddressFamily == AddressFamily.InterNetwork));
         var address = IPAddress.Parse(adapter.Addresses.First(ip => IPAddress.Parse(ip).AddressFamily == AddressFamily.InterNetwork));
         var root = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "application-feed-" + Guid.NewGuid().ToString("N"));
-        await using var controller = new EngineController(enginePath, root);
         var settings = new AppSettings { Rules = [new() { Application = new() { Name = "Application feed integration", ExecutablePath = Environment.ProcessPath! }, AdapterId = adapter.Id, Fallback = FallbackKind.Block }] };
+        ProcessSnapshotEntry[] processes =
+        [
+            new(Environment.ProcessId, 1, Environment.ProcessPath!, DateTimeOffset.UtcNow.AddMinutes(-1), "NICRoute Test", "NICRoute")
+        ];
+        await using var controller = new EngineController(enginePath, root, () => processes);
         var portFinder = new TcpListener(IPAddress.Loopback, 0); portFinder.Start();
         var proxyPort = ((IPEndPoint)portFinder.LocalEndpoint).Port; portFinder.Stop();
         var destination = new TcpListener(address, 0); destination.Start();
@@ -70,8 +74,19 @@ internal static class ApplicationFeedIntegration
                 }
                 if (!observed.ActualRoute.Contains(adapter.Name + "（自动）")) throw new Exception("Actual automatic TCP interface could not be confirmed: " + observed);
             }
+            var helperPath = @"C:\Apps\NICRoute Integration\helper.exe";
+            processes =
+            [
+                new(Environment.ProcessId, 1, Environment.ProcessPath!, DateTimeOffset.UtcNow.AddMinutes(-1), "NICRoute Test", "NICRoute"),
+                new(Environment.ProcessId + 1000, Environment.ProcessId, helperPath, DateTimeOffset.UtcNow, "NICRoute Test", "NICRoute Helper")
+            ];
+            if (!await controller.RefreshApplicationTreeAsync() ||
+                !controller.ApplicationProcesses.PathsFor(settings.Rules[0].Application).Contains(helperPath, StringComparer.OrdinalIgnoreCase))
+                throw new Exception("A helper discovered after engine startup did not trigger a routing-tree refresh.");
+
             Console.WriteLine("Actual application event feed: short TCP upload/download final counters, process attribution and bound interface verified.");
             Console.WriteLine("Actual automatic TCP egress confirmed from engine-owned Windows socket source address.");
+            Console.WriteLine("A post-start helper process refreshed the routing tree without silently retaining its prior destination.");
             return 4;
         }
         finally { destination.Stop(); await controller.StopAsync(); }

@@ -1,9 +1,28 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Text;
+using System.Text.RegularExpressions;
 using NICRoute.Core;
 
 internal static class ApplicationTrafficTests
 {
+    public static async Task<int> LiveFeedAsync(int port, string secret, int seconds)
+    {
+        var latest = new ConcurrentDictionary<string, ObservedConnection>(StringComparer.Ordinal);
+        await using var feed = new ApplicationConnectionFeed(port, secret, batch =>
+        {
+            foreach (var item in batch.Events)
+                if (item.Connection is { } connection) latest[connection.Id] = connection;
+        }, _ => { });
+        await feed.Ready.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(TimeSpan.FromSeconds(seconds));
+        var lines = latest.Values.GroupBy(connection =>
+                $"{connection.ProcessPath}\t{connection.Outbound}\t{string.Join(">", connection.Chain)}")
+            .Select(group => $"{group.Count()}\t{group.Sum(connection => connection.Uploaded)}\t{group.Sum(connection => connection.Downloaded)}\t{group.Key}")
+            .OrderByDescending(line => line).ToArray();
+        foreach (var line in lines) Console.WriteLine(line);
+        return lines.Length;
+    }
     public static int Run()
     {
         var count = 0;
@@ -55,6 +74,101 @@ internal static class ApplicationTrafficTests
         var packaged = new ObservedConnection("package-one", @"C:\Program Files\WindowsApps\Vendor.Tasks_2.0.0.0_x64__publisher\Helper\network.exe", 12, "udp", "192.0.2.1:443", a.Tag, [a.Tag], 40, 80, true);
         packages.Receive(new(true, [new(2, packaged.Id, packaged, 0, 0)]));
         Check(packages.Snapshot(tick).Single() is { Name: "Tasks", Uploaded: 40, Downloaded: 80 }, "version-independent Windows package helper attribution");
+        var rootStarted = new DateTimeOffset(2026, 11, 9, 12, 0, 0, TimeSpan.Zero);
+        var helper = @"C:\Apps\Example\resources\download.exe";
+        var grandchild = @"C:\Apps\Example\resources\codec.exe";
+        var tree = ApplicationProcessResolver.Resolve(settings,
+        [
+            new(100, 1, target.ExecutablePath, rootStarted, "Example Corp", "Example"),
+            new(101, 100, helper, rootStarted.AddSeconds(1), "Example Corp", "Example Helper"),
+            new(102, 101, grandchild, rootStarted.AddSeconds(2), "Unrelated Corp", "Codec")
+        ]);
+        Check(tree.PathsFor(target).Contains(helper, StringComparer.OrdinalIgnoreCase), "a direct child helper inherits the configured application rule");
+        Check(tree.PathsFor(target).Contains(grandchild, StringComparer.OrdinalIgnoreCase), "a grandchild helper inherits the configured application rule");
+        Check(ApplicationProcessResolver.RoutingChanged(tree,
+            ApplicationProcessResolver.Resolve(settings,
+            [
+                new(100, 1, target.ExecutablePath, rootStarted, "Example Corp", "Example"),
+                new(101, 100, helper, rootStarted.AddSeconds(1), "Example Corp", "Example Helper"),
+                new(102, 101, grandchild, rootStarted.AddSeconds(2), "Unrelated Corp", "Codec"),
+                new(103, 101, @"C:\Apps\Example\resources\network.exe", rootStarted.AddSeconds(3), "Example Corp", "Example Network")
+            ])), "a helper appearing after startup schedules a route reload");
+        Check(ApplicationProcessResolver.Capture().Any(process => process.ProcessId == Environment.ProcessId &&
+            process.ExecutablePath.Equals(Environment.ProcessPath, StringComparison.OrdinalIgnoreCase)),
+            "native process capture includes the current executable and full path");
+
+        var quark = new ApplicationTarget { Name = "QuarkCloudDrive", ExecutablePath = @"D:\CloudDriveMCP\clients\quark\quark_cloud_drive.exe" };
+        var quarkHelper = @"C:\Users\Administrator\AppData\Local\Programs\quark-cloud-drive\app-3.24.0\QuarkCloudDrive.exe";
+        var quarkRelated = ApplicationProcessResolver.Resolve(new() { Rules = [new() { Application = quark, AdapterId = "a" }] },
+        [new(150, 1, quark.ExecutablePath, rootStarted, "The QuarkCloudDrive Authors", "QuarkCloudDrive")],
+        [new(151, 0, quarkHelper, rootStarted.AddMinutes(1), "Quark", "夸克网盘")]);
+        Check(quarkRelated.PathsFor(quark).Contains(quarkHelper, StringComparer.OrdinalIgnoreCase),
+            "connection-observed Quark helper is associated across launcher and app-data install roots");
+
+        var baidu = new ApplicationTarget { Name = "BaiduNetdisk", ExecutablePath = @"D:\CloudDriveMCP\clients\baidu\BaiduNetdisk.exe" };
+        var baiduAccount = @"C:\Users\Administrator\AppData\Local\CloudDriveMCP\baidu-accounts\6515947587d8\client\BaiduNetdisk.exe";
+        var baiduRelated = ApplicationProcessResolver.Resolve(new() { Rules = [new() { Application = baidu, AdapterId = "a" }] },
+        [
+            new(200, 1, baidu.ExecutablePath, rootStarted, "Baidu.com, Inc.", "BaiduYunGuanjia Application"),
+            new(300, 299, baiduAccount, rootStarted.AddMinutes(1), "Baidu.com, Inc.", "BaiduYunGuanjia Application"),
+            new(301, 299, @"D:\Other\baidu\BaiduNetdisk.exe", rootStarted.AddMinutes(1), "Unrelated Corp", "Generic Downloader")
+        ]);
+        Check(baiduRelated.PathsFor(baidu).Contains(baiduAccount, StringComparer.OrdinalIgnoreCase),
+            "a shared account client is associated by strong product identity without direct ancestry");
+        Check(!baiduRelated.PathsFor(baidu).Contains(@"D:\Other\baidu\BaiduNetdisk.exe", StringComparer.OrdinalIgnoreCase),
+            "an unrelated process sharing an exe name and directory token is excluded");
+
+        var reusedPid = ApplicationProcessResolver.Resolve(new() { Rules = [new() { Application = baidu, AdapterId = "a" }] },
+        [
+            new(400, 1, baidu.ExecutablePath, rootStarted.AddMinutes(2), "Baidu.com, Inc.", "BaiduYunGuanjia Application"),
+            new(401, 400, @"D:\Other\reused.exe", rootStarted.AddMinutes(1), "Unrelated Corp", "Generic")
+        ]);
+        Check(!reusedPid.PathsFor(baidu).Contains(@"D:\Other\reused.exe", StringComparer.OrdinalIgnoreCase),
+            "PID reuse cannot inherit a newly-created root's application rule");
+
+        var relatedSettings = new AppSettings { Rules = [new() { Application = baidu, AdapterId = "a", Fallback = FallbackKind.Block }] };
+        var relatedTracker = new ApplicationTrafficTracker();
+        relatedTracker.Configure(relatedSettings, [a], baiduRelated); relatedTracker.Begin(); relatedTracker.SetOnline(true);
+        var accountTraffic = new ObservedConnection("account", baiduAccount, 300, "tcp", "192.0.2.1:443", a.Tag, [a.Tag], 70, 90, false);
+        relatedTracker.Receive(new(true, [new(0, accountTraffic.Id, accountTraffic, 0, 0)]));
+        Check(relatedTracker.Snapshot(tick * 2).Single() is { Name: "BaiduNetdisk", Configured: true, Uploaded: 70, Downloaded: 90, Connections: 1 },
+            "auxiliary traffic is grouped on the configured application card");
+
+        var relatedConfig = ConfigBuilder.Build(relatedSettings, [a], 20011, "test-only", 20012, false, 20013, 20014, baiduRelated);
+        var relatedMatcher = relatedConfig["route"]!["rules"]![1]!["process_path_regex"]![0]!.GetValue<string>();
+        Check(Regex.IsMatch(baidu.ExecutablePath, relatedMatcher) && Regex.IsMatch(baiduAccount, relatedMatcher) &&
+            !Regex.IsMatch(@"D:\Other\baidu\BaiduNetdisk.exe", relatedMatcher), "engine routing covers the resolved desktop application tree");
+        Check(ApplicationNetworkGuard.Targets(relatedSettings, baiduRelated).Length == 2,
+            "WFP guard covers the configured executable and its resolved helper paths");
+
+        var appA = new ApplicationTarget { Name = "A", ExecutablePath = @"C:\Vendor\app-a\client.exe" };
+        var appB = new ApplicationTarget { Name = "B", ExecutablePath = @"C:\Vendor\app-b\client.exe" };
+        var ambiguousPath = @"C:\Shared\vendor\helper.exe";
+        var ambiguousSettings = new AppSettings { Rules = [new() { Application = appA, AdapterId = "a" }, new() { Application = appB, AdapterId = "a" }] };
+        var ambiguous = ApplicationProcessResolver.Resolve(ambiguousSettings,
+        [
+            new(500, 1, appA.ExecutablePath, rootStarted, "Vendor", "Client"),
+            new(501, 1, appB.ExecutablePath, rootStarted, "Vendor", "Client"),
+            new(502, 0, ambiguousPath, rootStarted.AddMinutes(1), "Vendor", "Client Helper")
+        ]);
+        Check(!ambiguous.PathsFor(appA).Contains(ambiguousPath, StringComparer.OrdinalIgnoreCase) &&
+            ambiguous.BlockedPathsFor(appA).Contains(ambiguousPath, StringComparer.OrdinalIgnoreCase),
+            "an auxiliary path claimed by two applications is excluded and marked fail-closed");
+        ambiguousSettings.Rules[1].Enabled = false;
+        Check(ApplicationProcessResolver.Resolve(ambiguousSettings,
+            [
+                new(500, 1, appA.ExecutablePath, rootStarted, "Vendor", "Client"),
+                new(501, 1, appB.ExecutablePath, rootStarted, "Vendor", "Client"),
+                new(502, 0, ambiguousPath, rootStarted.AddMinutes(1), "Vendor", "Client Helper")
+            ]).PathsFor(appA).Contains(ambiguousPath, StringComparer.OrdinalIgnoreCase),
+            "a disabled rule cannot make an active helper path ambiguous");
+        ambiguousSettings.Rules[1].Enabled = true;
+        var ambiguousConfig = ConfigBuilder.Build(ambiguousSettings, [a], 20021, "test-only", 20022, false, 20023, 20024, ambiguous);
+        Check(ambiguousConfig["route"]!["rules"]!.AsArray().Any(rule =>
+            rule!["process_path_regex"]?[0]?.GetValue<string>() is { } pattern && Regex.IsMatch(ambiguousPath, pattern) &&
+            rule["outbound"]?.GetValue<string>() == RuleResolver.BlockTag),
+            "ambiguous application processes are blocked instead of following the global route");
+
         ApplicationNetworkGuard.ValidateLayout();
         Check(ApplicationNetworkGuard.Targets(settings).Length == 1, "enabled app gets a kernel guard identity");
         settings.Rules[0].Enabled = false;

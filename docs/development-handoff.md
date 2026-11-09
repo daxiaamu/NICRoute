@@ -141,7 +141,7 @@ flowchart LR
 
 应用：通过额外的本机 `api` service 订阅 `/daemon.StartedService/SubscribeConnections`，协议字段对齐固定的 sing-box 1.14.4 `daemon/started_service.proto`。它与 Clash `/connections` 活动连接快照不是一回事：关闭事件的绝对计数用于补齐短连接，初始/重连历史需要去重。服务与Clash控制接口均绑定 `127.0.0.1`，使用临时 Bearer secret。
 
-应用归属：已配置exe完整路径；已配置Windows包目录模式；未配置WindowsApps目录推导的包身份；其他完整进程路径；无路径时为未识别进程。未配置应用的显示名可能只是exe文件名或包名，不能误判为没有识别到流量。
+应用归属：桌面规则先确认exe主程序，再合并进程树与可信产品/路径身份确认的辅助进程；Windows包按包目录模式归属；未配置WindowsApps目录推导包身份；其他完整进程路径单独显示；无路径时为未识别进程。归属不唯一必须阻断而不是猜测。未配置应用的显示名可能只是exe文件名或包名，不能误判为没有识别到流量。
 
 当前实现边界：
 

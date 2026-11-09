@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
@@ -14,6 +15,7 @@ public sealed class EngineController : IAsyncDisposable
     private readonly SemaphoreSlim gate = new(1);
     private readonly string enginePath;
     private readonly string workDirectory;
+    private readonly Func<ProcessSnapshotEntry[]> captureProcesses;
     private Process? process;
     private int enginePid;
     public void RefreshObservedInterfaces(IReadOnlyList<AdapterInfo> adapters)
@@ -33,6 +35,14 @@ public sealed class EngineController : IAsyncDisposable
     private Dictionary<string, string> selections = [];
     private IReadOnlyDictionary<string, AdapterSourceBinding> configuredBindings =
         new Dictionary<string, AdapterSourceBinding>();
+    private AppSettings runningSettings = new();
+    private IReadOnlyList<AdapterInfo> runningAdapters = [];
+    private bool runningUseTun = true;
+    private int runningTestPort;
+    private ApplicationProcessResolution applicationProcesses = new([]);
+    private CancellationTokenSource? processWatcher;
+    private readonly ConcurrentDictionary<string, ProcessSnapshotEntry> observedApplicationPaths = new(StringComparer.OrdinalIgnoreCase);
+    private int applicationRefreshScheduled;
     private readonly Queue<string> recent = new();
     public event Action<string>? Log;
     public event Action? UnexpectedExit;
@@ -41,15 +51,29 @@ public sealed class EngineController : IAsyncDisposable
     public string? GetSelectedOutbound(string selector)
     { lock (selections) return selections.GetValueOrDefault(selector); }
 
+    public ApplicationProcessResolution ApplicationProcesses => applicationProcesses;
+
     public EngineController(string enginePath, string workDirectory)
-    { this.enginePath = enginePath; this.workDirectory = workDirectory; }
+        : this(enginePath, workDirectory, ApplicationProcessResolver.Capture) { }
+    public EngineController(string enginePath, string workDirectory, Func<ProcessSnapshotEntry[]> captureProcesses)
+    {
+        this.enginePath = enginePath; this.workDirectory = workDirectory;
+        this.captureProcesses = captureProcesses ?? throw new ArgumentNullException(nameof(captureProcesses));
+    }
 
     public async Task StartAsync(AppSettings settings, IReadOnlyList<AdapterInfo> adapters, bool useTun = true, int testPort = 0)
     {
         await gate.WaitAsync();
+        try { observedApplicationPaths.Clear(); await StartCoreAsync(settings, adapters, useTun, testPort); }
+        finally { gate.Release(); }
+    }
+    private async Task StartCoreAsync(AppSettings settings, IReadOnlyList<AdapterInfo> adapters, bool useTun, int testPort)
+    {
         try
         {
             if (IsRunning) throw new InvalidOperationException("分流引擎已启动。");
+            runningSettings = SettingsStore.Clone(settings); runningAdapters = adapters.ToArray();
+            runningUseTun = useTun; runningTestPort = testPort;
             if (!File.Exists(enginePath)) throw new FileNotFoundException("缺少分流引擎，请运行 scripts/Get-Engine.ps1 后重新打包。", enginePath);
             var lockPath = Path.Combine(Path.GetDirectoryName(enginePath)!, "engine.lock.json");
             if (!File.Exists(lockPath)) throw new InvalidDataException("缺少引擎校验文件，请重新获取完整安装包。");
@@ -71,8 +95,9 @@ public sealed class EngineController : IAsyncDisposable
             var monitorPort = GetFreePort();
             while (monitorPort == port) monitorPort = GetFreePort();
             var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            applicationProcesses = ApplicationProcessResolver.Resolve(settings, captureProcesses(), observedApplicationPaths.Values);
             var configPath = Path.Combine(workDirectory, "engine.json");
-            await File.WriteAllTextAsync(configPath, ConfigBuilder.Serialize(ConfigBuilder.Build(settings, adapters, port, secret, reject.Port, useTun, testPort, monitorPort)));
+            await File.WriteAllTextAsync(configPath, ConfigBuilder.Serialize(ConfigBuilder.Build(settings, adapters, port, secret, reject.Port, useTun, testPort, monitorPort, applicationProcesses)));
             await CheckAsync(configPath);
             if (useTun)
             {
@@ -81,7 +106,8 @@ public sealed class EngineController : IAsyncDisposable
                     throw new InvalidDataException("不能为分流引擎自身添加应用规则。");
                 var adapterBindings = adapters.Select(AdapterSourceBinding.Capture).ToArray();
                 AdapterSourceBinding.ValidateUnique(adapterBindings);
-                var targets = ApplicationNetworkGuard.Targets(settings);
+                var targets = ApplicationNetworkGuard.Targets(settings, applicationProcesses)
+                    .Where(target => target.IsPackage || File.Exists(target.Identity)).ToArray();
                 var egressBindings = adapterBindings
                     .SelectMany(binding => binding.GuardBindings())
                     .DistinctBy(binding => (binding.LocalAddress.ToLowerInvariant(), binding.InterfaceName))
@@ -100,6 +126,7 @@ public sealed class EngineController : IAsyncDisposable
             process.Exited += (_, _) =>
             {
                 IsReady = false;
+                processWatcher?.Cancel();
                 Volatile.Write(ref enginePid, 0); ApplicationTraffic.Stop();
                 ready?.TrySetException(new InvalidOperationException("引擎退出。请检查运行日志。"));
                 if (!stopping) UnexpectedExit?.Invoke();
@@ -113,11 +140,12 @@ public sealed class EngineController : IAsyncDisposable
             networkGuard?.AllowInterface(ConfigBuilder.TunName);
             if (networkGuard is not null) Log?.Invoke("应用网卡约束已启用：受控应用不能绕过 NICRoute 直接使用其他网卡；不依赖联网探测。");
             selections = RuleResolver.Selections(settings, adapters);
-            ApplicationTraffic.Configure(settings, adapters); ApplicationTraffic.Begin();
-            applicationFeed = new(monitorPort, secret, ApplicationTraffic.Receive, ApplicationTraffic.SetOnline);
+            ApplicationTraffic.Configure(settings, adapters, applicationProcesses); ApplicationTraffic.Begin();
+            applicationFeed = new(monitorPort, secret, ReceiveApplicationConnections, ApplicationTraffic.SetOnline);
             try { await applicationFeed.Ready.WaitAsync(TimeSpan.FromSeconds(5)); }
             catch (TimeoutException) { Log?.Invoke("应用流量监控尚未连接，将自动重试；分流继续运行。"); }
             IsReady = true;
+            StartProcessWatcher();
             foreach (var adapter in adapters) Log?.Invoke($"网卡出口：{adapter.Tag} → {adapter.Name}（{adapter.Status}）");
             Log?.Invoke("分流已启动。TCP / UDP 连接按应用规则选择网卡。");
         }
@@ -128,8 +156,80 @@ public sealed class EngineController : IAsyncDisposable
             await StopCoreAsync();
             throw new InvalidOperationException(e.Message + (details.Length > 0 ? "\n" + details : ""), e);
         }
+    }
+
+    public async Task<bool> RefreshApplicationTreeAsync()
+    {
+        await gate.WaitAsync();
+        try
+        {
+            if (!IsReady || stopping || !runningSettings.Rules.Any(rule => rule.Enabled && rule.Application.Kind == ApplicationKind.Desktop))
+                return false;
+            var next = MergeApplicationProcesses(applicationProcesses,
+                ApplicationProcessResolver.Resolve(runningSettings, captureProcesses(), observedApplicationPaths.Values));
+            if (!ApplicationProcessResolver.RoutingChanged(applicationProcesses, next)) return false;
+            var added = next.Processes.Select(process => process.ExecutablePath)
+                .Except(applicationProcesses.Processes.Select(process => process.ExecutablePath), StringComparer.OrdinalIgnoreCase)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            Log?.Invoke("检测到应用辅助进程：" + string.Join("、", added) + "。正在安全刷新应用树路由。");
+            await StopCoreAsync();
+            await StartCoreAsync(runningSettings, runningAdapters, runningUseTun, runningTestPort);
+            return true;
+        }
         finally { gate.Release(); }
     }
+
+    private void StartProcessWatcher()
+    {
+        processWatcher?.Cancel(); processWatcher?.Dispose();
+        if (!runningSettings.Rules.Any(rule => rule.Enabled && rule.Application.Kind == ApplicationKind.Desktop)) return;
+        processWatcher = new();
+        var token = processWatcher.Token;
+        _ = Task.Run(() => WatchApplicationProcessesAsync(token));
+    }
+    private void ReceiveApplicationConnections(ObservedConnectionBatch batch)
+    {
+        ApplicationTraffic.Receive(batch);
+        var added = false;
+        foreach (var connection in batch.Events.Select(item => item.Connection).Where(connection => connection is not null))
+        {
+            var path = connection!.ProcessPath;
+            if (path.Length == 0 || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                observedApplicationPaths.Count >= 4096 || observedApplicationPaths.ContainsKey(path)) continue;
+            observedApplicationPaths.TryAdd(path, new(checked((int)Math.Min(connection.ProcessId, int.MaxValue)), 0, path,
+                DateTimeOffset.UtcNow, "", ""));
+            added = true;
+        }
+        if (added) ScheduleApplicationTreeRefresh();
+    }
+    private void ScheduleApplicationTreeRefresh()
+    {
+        if (Interlocked.CompareExchange(ref applicationRefreshScheduled, 1, 0) != 0) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(100);
+                await RefreshApplicationTreeAsync();
+            }
+            catch (ObjectDisposedException) { }
+            catch (Exception error) { Log?.Invoke("应用树即时刷新失败，将由周期检查重试：" + error.Message); }
+            finally { Volatile.Write(ref applicationRefreshScheduled, 0); }
+        });
+    }
+    private async Task WatchApplicationProcessesAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try { await Task.Delay(TimeSpan.FromMilliseconds(750), token); await RefreshApplicationTreeAsync(); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+            catch (ObjectDisposedException) when (token.IsCancellationRequested) { return; }
+            catch (Exception error) { Log?.Invoke("应用树刷新暂时失败，将继续重试：" + error.Message); }
+        }
+    }
+    private static ApplicationProcessResolution MergeApplicationProcesses(ApplicationProcessResolution previous,
+        ApplicationProcessResolution current) => new(previous.Processes.Concat(current.Processes)
+        .DistinctBy(process => (process.ApplicationIdentity.ToLowerInvariant(), process.ExecutablePath.ToLowerInvariant())).ToArray());
 
     private void OnOutput(string? line)
     {
@@ -199,6 +299,7 @@ public sealed class EngineController : IAsyncDisposable
     private async Task StopCoreAsync()
     {
         stopping = true;
+        processWatcher?.Cancel(); processWatcher?.Dispose(); processWatcher = null;
         IsReady = false;
         configuredBindings = new Dictionary<string, AdapterSourceBinding>();
         Volatile.Write(ref enginePid, 0);

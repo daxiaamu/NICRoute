@@ -150,6 +150,9 @@ var updaterIndex=Array.IndexOf(args,"--updater-e2e");
 if(updaterIndex>=0) passed+=await UpdateTests.RunUpdaterAsync(args[updaterIndex+1],args[Array.IndexOf(args,"--fixtures")+1]);
 var mudlIndex=Array.IndexOf(args,"--mudl");
 if(mudlIndex>=0) passed+=await UpdateTests.RunMudlAsync(args[mudlIndex+1]);
+var liveFeedIndex=Array.IndexOf(args,"--live-feed");
+if(liveFeedIndex>=0) passed+=await ApplicationTrafficTests.LiveFeedAsync(int.Parse(args[liveFeedIndex+1]),
+    args[liveFeedIndex+2], args.Length > liveFeedIndex + 3 ? int.Parse(args[liveFeedIndex+3]) : 10);
 Console.WriteLine($"PASS: {passed} assertions");
 
 async Task IntegrationAsync(string enginePath, string work)
