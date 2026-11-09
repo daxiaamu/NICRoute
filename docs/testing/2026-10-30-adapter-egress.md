@@ -80,3 +80,13 @@
 - 在线更新 Feed 的最终发布后检查。
 
 以上项目不能在单默认路由环境中可靠判定，保持未测，不据此宣称全场景通过。
+
+## 正式发布复验（2026-11-09）
+
+- 发布工作流：[Actions 42638505761](https://github.com/daxiaamu/NICRoute/actions/runs/42638505761)，全部步骤成功。
+- Release 标签目标：`00971bebd221aff0b3b5886b663587d2d9b5fd9c`。
+- 正式运行包：`104873015` 字节，SHA256 `61d00e65caeb7806200e77df79eb1ff05bed522b0987f7bc5ff6cc5e0d8374cb`。
+- 正式源码包：SHA256 `60b9a233f13168f7691e0807bad32ffb88f8326157ff17f961960ae03f27d55c`。
+- stable 指针 revision `6`，不可变清单 SHA256 `f695da5c7794d6d7a009d95034c30db8c9477a50fbab3807d53d584aef537d62`，与工作流生成的 `a1f7ae0` 一致。
+- 使用 MUDL 从四个官方/镜像源下载正式运行包，独立复算摘要和大小一致；工作流内的真实客户端发布后 `check-live` 已通过。
+- 本机后续直接访问 `raw.githubusercontent.com` 受当前测试网络阻断，因此本机重复 `check-live` 无法取得官方信息；GitHub API 入口可直接读取同一指针，不能据此判定发布失败。

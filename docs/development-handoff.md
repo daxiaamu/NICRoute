@@ -1,6 +1,6 @@
 # NICRoute 测试机开发交接
 
-本文供测试机上的 Codex 接手测试、定位问题和继续开发。基线日期：2026-10-29。先核对实际检出的提交，本文中的版本和断言数是该基线的记录，不是后续版本必须保持的常量。
+本文供测试机上的 Codex 接手测试、定位问题和继续开发。基线日期：2026-11-09。先核对实际检出的提交，本文中的版本和断言数是该基线的记录，不是后续版本必须保持的常量。
 
 **第一优先级：真实 TUN + WFP + 双网卡端到端验收。现有 CI 通过不能替代这一验收。用户明确要求“不联网”不能靠外网连通性探测来实现，也不能偷偷使用系统跃点选择另一张网卡。**
 
@@ -10,7 +10,7 @@
 | --- | --- |
 | [README.md](../README.md) | 用户功能、已知边界、基本构建方法 |
 | [本交接文档](development-handoff.md) | 接手顺序、关键实现、测试矩阵、开发约束 |
-| [v0.2.3 发布说明](releases/v0.2.3.md) | 当前实现范围 |
+| [v0.2.4 发布说明](releases/v0.2.4.md) | 当前实现范围 |
 | [更新实现说明](updates.md) | 更新协议、信任边界、安装与回滚、发版流程 |
 | [发布工作流](../.github/workflows/release.yml) | 可重复的构建及发布入口 |
 | [第三方许可](../THIRD-PARTY-NOTICES.md) | 引擎、MUDL、运行时的来源与许可 |
@@ -20,20 +20,20 @@
 | 项目 | 基线 |
 | --- | --- |
 | 仓库 | https://github.com/daxiaamu/NICRoute |
-| 已发布版本 | [v0.2.3](https://github.com/daxiaamu/NICRoute/releases/tag/v0.2.3) |
-| 应用源码提交 / Release 标签目标 | `b5dad8a672a83e9eaca1f211148bffd6f980c994` |
-| 更新清单提交 | `313226f`，在应用提交之后，只增加发布元数据 |
-| 成功的 Actions 记录 | https://github.com/daxiaamu/NICRoute/actions/runs/40902149602 |
-| 应用版本 / VersionCode | `0.2.3` / `5` |
-| stable policyRevision / 强制边界 | `5` / `0`，当前更新可选 |
+| 已发布版本 | [v0.2.4](https://github.com/daxiaamu/NICRoute/releases/tag/v0.2.4) |
+| 应用源码提交 / Release 标签目标 | `00971bebd221aff0b3b5886b663587d2d9b5fd9c` |
+| 更新清单提交 | `a1f7ae0`，在应用提交之后，只增加发布元数据 |
+| 成功的 Actions 记录 | https://github.com/daxiaamu/NICRoute/actions/runs/42638505761 |
+| 应用版本 / VersionCode | `0.2.4` / `6` |
+| stable policyRevision / 强制边界 | `6` / `0`，当前更新可选 |
 | Windows / UI / SDK | Windows 10、11 x64 / WPF / .NET 10 SDK；CI 固定 `10.0.100` |
 | 自包含运行时 | .NET `10.0.14`，与 SDK 版本分别管理 |
 | 分流引擎 | sing-box `1.14.4`，官方 Windows amd64 构建 |
 | 更新下载器 | MUDL-C `0.5.14`，Windows x64，最多32连接 |
-| 运行包 SHA256 | `686963b5168990f2b17b91cab909c7b3685241b6312739733dbca8de28e6b5a8` |
-| 运行包大小 | `104867603` 字节，指上述正式 Release 附件 |
+| 运行包 SHA256 | `61d00e65caeb7806200e77df79eb1ff05bed522b0987f7bc5ff6cc5e0d8374cb` |
+| 运行包大小 | `104873015` 字节，指上述正式 Release 附件 |
 
-本次新增的交接文档位于仓库 `main`，不会回写已经发布的 v0.2.3 ZIP。交接时优先克隆或更新仓库；如果只拿到旧源码 ZIP，还需另取本文。
+本次交接文档更新位于已发布应用提交之后，不会回写已经发布的 v0.2.4 ZIP。交接时优先克隆或更新仓库；如果只拿到旧源码 ZIP，还需另取本文。
 
 必须保留的用户决定：
 
@@ -163,7 +163,7 @@ dotnet build NICRoute.slnx -c Release -p:NuGetAudit=false
 dotnet run --project tests/NICRoute.Tests -c Release --no-build -- --engine "$PWD/engine/sing-box.exe"
 ```
 
-v0.2.3 CI 此入口为183项断言，包括策略矩阵、更新、网卡采样、应用事件归属与去重、WFP结构布局。这里**没有真正启用WFP策略或TUN**。
+v0.2.4 CI 此入口为192项断言，包括策略矩阵、更新、网卡采样、应用事件归属与去重、WFP结构布局。这里**没有真正启用WFP策略或TUN**。
 
 ### B. 实际引擎和流量监控，不启动TUN
 
@@ -184,7 +184,7 @@ dotnet run --project tests/NICRoute.Tests -c Release --no-build -- --engine "$PW
 dotnet run --project tests/NICRoute.Tests -c Release --no-build -- --engine "$PWD/engine/sing-box.exe" --integration --traffic --applications --firewall
 ```
 
-v0.2.3 CI 此入口为212项断言，包含10项原生WFP检查。无管理员令牌时 `--firewall` 会失败，不会悄悄跳过。
+v0.2.4 CI 此入口为224项断言，包含13项原生WFP检查。无管理员令牌时 `--firewall` 会失败，不会悄悄跳过。
 
 `FirewallTests.cs` 主要临时过滤测试可执行程序自身，在本机回环端点验证TCP/UDP阻断、指定下一跳放行/阻断及清理；生产保留回环，测试为覆盖过滤行为显式设置了 `preserveLoopback:false`。**这不是完整生产模式验收。**
 
