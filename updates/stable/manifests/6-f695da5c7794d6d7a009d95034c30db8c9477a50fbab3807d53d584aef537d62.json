@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "appId": "NICRoute.Windows",
+  "platform": "win-x64",
+  "channel": "stable",
+  "policyRevision": 6,
+  "versionCode": 6,
+  "versionName": "0.2.4",
+  "maxForcedVersionCode": 0,
+  "publishedAt": "2026-11-09T14:52:24.0000000+00:00",
+  "changelog": "修复选定网卡出口可能被 Windows 默认路由带到其他网卡的问题。\r\n\r\n### 网卡出口\r\n- 每个直接出口同时绑定选中网卡的首个 IPv4/IPv6 源地址。\r\n- 对分流引擎安装动态 WFP “源地址/下一跳网卡”一致性约束。\r\n- 当源地址属于指定网卡但 Windows 选择另一张网卡出站时，连接在引擎外发前失败，不再借用默认出口。\r\n- 保存启动时的接口名称和首个 IPv4/IPv6 地址；运行中绑定条件变化时自动阻断相关 selector，提示重新应用，避免 DHCP 新地址绕过约束。\r\n- 同一 IP 同时属于多张网卡时拒绝启动，不安装互相冲突的过滤器。\r\n- 全局默认出口和正常选中的网卡保持可用；显式绑定其他物理网卡的受控应用仍不能绕过 TUN。\r\n- 此约束不依赖联网探测，`ProbeInternet` 默认关闭的行为不变。\r\n\r\n### 验证\r\n- 在真实 TUN 和动态 WFP 环境中复现：首选网卡在线且具有 IP、但没有公网默认路由，另一张网卡可访问代理目标；规则回退为“不联网”时，修复前目标流量从可用网卡外发，修复后目标无外部载荷。\r\n- 真实 TUN 回归确认正常网卡选择、全局默认流量、显式绑定绕过阻断以及停止后的 TUN、路由和动态过滤清理。\r\n- 本版本仍为可选稳定更新，不启用强制更新。\r\n\n\n对应应用提交：00971bebd221aff0b3b5886b663587d2d9b5fd9c。",
+  "sha256": "61d00e65caeb7806200e77df79eb1ff05bed522b0987f7bc5ff6cc5e0d8374cb",
+  "size": 104873015,
+  "urls": [
+    "https://github.com/daxiaamu/NICRoute/releases/download/v0.2.4/NICRoute-win-x64.zip",
+    "https://gh.monlor.com/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.4/NICRoute-win-x64.zip",
+    "https://gh-proxy.com/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.4/NICRoute-win-x64.zip",
+    "https://ghfast.top/https://github.com/daxiaamu/NICRoute/releases/download/v0.2.4/NICRoute-win-x64.zip"
+  ],
+  "releaseUrl": "https://github.com/daxiaamu/NICRoute/releases/tag/v0.2.4"
+}
